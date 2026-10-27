@@ -1,10 +1,16 @@
 \documentclass[11pt]{article}
-\usepackage[margin=1in]{geometry}
+\usepackage[paperwidth=254mm,paperheight=142.875mm,margin=12mm]{geometry}
 \usepackage{amsmath,amssymb}
 
 \newcommand{\R}{\mathbb{R}}
 
 \begin{document}
+
+\begin{center}
+{\LARGE\bfseries Part I: Background notes}\par\vspace{4pt}
+{\large Supporting material for understanding the paper. Not presented.}
+\end{center}
+\vspace{6pt}\hrule\vspace{10pt}
 
 \section{Chain rule}
 
@@ -58,5 +64,143 @@ Without intercept ($c=0$): $a^*=\dfrac{\overline{uv}}{\overline{u^2}+\lambda}$.
 \]
 
 \paragraph{Role of $\lambda$.} (i) \emph{Stability:} the denominator is at least $\lambda>0$, so no division by zero even if all $u_i$ are equal. (ii) \emph{Shrinkage:} as $\lambda\to\infty$, $a^*\to0$ and the fit becomes the mean $\bar v\mathbf 1$.
+
+\section{Quantization}
+
+\paragraph{In short.} We select a grid of integers, assign one integer to each of our real numbers (rescale, then round to the nearest), and then try to get our real numbers back from those integers. Only the integers (plus one $s_f$, $b_f$ per block) are stored; the recovery is approximate, and the gap is the rounding error. The paper keeps the first two steps and changes only the last one: how to get back from the integers to the best possible real numbers.
+
+\paragraph{Setup.} A block $x\in\R^N$ (weights or activations) is mapped to a $k$-bit integer grid $\{q_{\min},\dots,q_{\max}\}$ with $2^k$ levels. Notation A$a$W$w$: $a$-bit activations, $w$-bit weights.
+
+\paragraph{Step 1: prequantization $f$.} Rescale $x$ onto the grid's range.
+\begin{itemize}
+\item Linear (centred data, e.g.\ weights): $f(x)=\dfrac{x}{s_f}$,\quad $s_f=\dfrac{\max_i|x_i|}{q_{\max}}$.
+\item Affine (uncentred data, e.g.\ ReLU activations): $f(x)=\dfrac{x-b_f\mathbf 1}{s_f}$,\quad $s_f=\dfrac{x_{\max}-x_{\min}}{q_{\max}-q_{\min}}$,\quad $b_f=x_{\min}-s_f\,q_{\min}$.
+\end{itemize}
+
+\paragraph{Step 2: rounding and the error.} $\operatorname{round}$ is nearest integer, entrywise.
+\[
+q=\operatorname{round}\big(f(x)\big)=f(x)+\delta,\qquad \delta=\operatorname{round}\big(f(x)\big)-f(x),\qquad |\delta_i|\le\tfrac12 .
+\]
+
+\paragraph{Step 3: standard dequantization.} Undo the rescaling ($b_f=0$ in the linear case):
+\[
+\hat x=s_f\,q+b_f\mathbf 1=x+s_f\,\delta .
+\]
+Quantization is therefore $x$ plus an additive error of size at most $s_f/2$ per entry; fewer bits means larger $s_f$, hence larger error.
+
+\section{The problem: zero gradient and the Straight-Through Estimator}
+
+\paragraph{The chain during training.} The network stores the real $x$; the next layer uses the quantized-then-dequantized $\hat x$:
+\[
+x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xrightarrow{\ s_f q+b_f\mathbf 1\ }\ \hat x\ \longrightarrow\ \text{rest of network}\ \longrightarrow\ L,
+\]
+where
+\begin{itemize}
+\item $f(x)=\dfrac{x-b_f\mathbf 1}{s_f}$ rescales $x$ onto the integer grid ($b_f=0$ in the linear case); $s_f$ is the step size of the grid in real units, $b_f$ the real value of integer $0$;
+\item $q=\operatorname{round}\big(f(x)\big)=f(x)+\delta$ is the stored integer vector, $\delta$ the rounding error, $|\delta_i|\le\frac12$;
+\item $\hat x=s_f\,q+b_f\mathbf 1=x+s_f\,\delta$ is $x$ as seen after quantization.
+\end{itemize}
+
+\paragraph{Chain rule.} Gradient descent needs $\nabla_x L$:
+\[
+\nabla_x L=\Big(\frac{\partial \hat x}{\partial x}\Big)^{\!\top}\nabla_{\hat x}L,
+\qquad
+\frac{\partial \hat x}{\partial x}
+=\underbrace{s_f}_{\text{scale back}}\cdot\underbrace{\frac{\partial q}{\partial f(x)}}_{\text{round}}\cdot\underbrace{\frac{1}{s_f}}_{f}
+=\frac{\partial q}{\partial f(x)} .
+\]
+The two scalings cancel, so the local gradient is exactly the slope of $\operatorname{round}$.
+
+\paragraph{Zero gradient.} $\operatorname{round}$ is a staircase: $\frac{d}{du}\operatorname{round}(u)=0$ for $u\notin\mathbb Z+\frac12$ (undefined at half-integers). Hence $\frac{\partial q}{\partial f(x)}=0$ almost everywhere and $\nabla_x L=0$: $x$ and all earlier layers never update (case 1 of Section 1).
+
+\paragraph{STE (Bengio et al., 2013).} Treat the rounding error as a constant in the backward pass:
+\[
+q=f(x)+\delta,\qquad \delta=\operatorname{stopgrad}\big(\operatorname{round}(f(x))-f(x)\big).
+\]
+Forward: $q=\operatorname{round}(f(x))$ exactly. Backward: $\frac{\partial q}{\partial f(x)}=I$, so $\frac{\partial \hat x}{\partial x}=I$ and $\nabla_x L=\nabla_{\hat x}L$ (case 2 of Section 1).
+
+\paragraph{The blind spot.}
+\[
+\text{forward: }\ \hat x=x+s_f\,\delta,\qquad\qquad \text{backward: }\ \frac{\partial \hat x}{\partial x}=I .
+\]
+The forward pass is changed by the error, but the local Jacobian is the same as with no quantization at all; $\delta$ does not appear in it. Earlier layers get no signal about how their rounding error hurts the loss, so they cannot learn to be robust to it. At 1--2 bits $s_f\delta$ is large and STE training becomes unstable. ($\delta$ still affects \emph{where} $\nabla_{\hat x}L$ is evaluated; it is absent only from the local factor $\partial\hat x/\partial x$, which is the factor the paper changes.)
+
+%==============================================================
+% SLIDES: one slide per page
+%==============================================================
+\clearpage
+\vspace*{\fill}
+\begin{center}
+{\Huge\bfseries Part II: Slides}\par\vspace{10pt}
+\end{center}
+\vspace*{\fill}
+\newcommand{\slide}[1]{\clearpage\noindent{\Large\bfseries #1}\par\vspace{4pt}\hrule\vspace{10pt}}
+
+\slide{Why quantization, and the forward pass during training}
+
+\paragraph{Why quantization.} Modern neural networks are huge: a language model has billions of weights, each stored as a 32-bit or 16-bit floating-point number. This makes models too big to fit on a phone, slower to run, and costly in energy. Quantization stores each weight with far fewer bits: 4, 2 or 1 bit instead of 16 or 32.
+
+\paragraph{Training with quantization.} During training the network keeps the float weights $x$ and updates them by gradient descent. We could compute with $x$, but we deliberately use the quantized version $\hat x$ in the forward pass, so the network learns to be robust to the rounding it will face at inference. After training, $x$ is discarded; only the low-bit integers $q$ (plus one $s_f$, $b_f$ per block) are kept.
+
+\paragraph{The forward pass during training.}
+\[
+x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xrightarrow{\ s_f q+b_f\mathbf 1\ }\ \hat x\ \longrightarrow\ \text{rest of network}\ \longrightarrow\ L
+\]
+\begin{itemize}
+\item $x\in\R^N$: float block, kept and updated during training.
+\item $f(x)=\dfrac{x-b_f\mathbf 1}{s_f}$: rescales $x$ onto the $k$-bit integer grid; $s_f$ = grid step in real units, $b_f$ = real value of integer $0$ ($b_f=0$ in the linear case).
+\item $q=\operatorname{round}\big(f(x)\big)=f(x)+\delta$: the integers, with rounding error $|\delta_i|\le\frac12$.
+\item $\hat x=s_f\,q+b_f\mathbf 1=x+s_f\,\delta$: $x$ as seen after quantization; this is what the next layer uses.
+\end{itemize}
+
+\slide{The problem: the true gradient is zero}
+
+\paragraph{Chain rule through the quantizer.} Gradient descent needs $\nabla_x L$:
+\[
+\nabla_x L=\Big(\frac{\partial \hat x}{\partial x}\Big)^{\!\top}\nabla_{\hat x}L,
+\qquad
+\frac{\partial \hat x}{\partial x}
+=\underbrace{s_f}_{\text{scale back}}\cdot\underbrace{\frac{\partial q}{\partial f(x)}}_{\text{round}}\cdot\underbrace{\frac{1}{s_f}}_{f}
+=\frac{\partial q}{\partial f(x)} .
+\]
+The two scalings cancel: the local gradient is exactly the slope of $\operatorname{round}$.
+
+\paragraph{Round is a staircase.}
+\[
+\frac{d}{du}\operatorname{round}(u)=0\quad\text{for } u\notin\mathbb Z+\tfrac12,\qquad\text{undefined at } u\in\mathbb Z+\tfrac12 .
+\]
+Hence $\dfrac{\partial q}{\partial f(x)}=0$ almost everywhere, so
+\[
+\nabla_x L=0 .
+\]
+
+\paragraph{Consequence.} A small change in $x$ does not change $q$, so the loss gives $x$ no direction to move: $x$ and every layer before it never update. Training cannot start.
+
+\slide{The standard fix: Straight-Through Estimator (STE)}
+
+\paragraph{Idea.} Forward pass: round exactly as before. Backward pass: pass the gradient straight through the rounding, i.e.\ replace the true slope of $\operatorname{round}$ (zero) by $1$. This is a chosen rule, not a derived derivative (Bengio et al., 2013).
+
+\paragraph{Decomposition.} Write the rounded value as the smooth part plus the rounding error:
+\[
+q=\operatorname{round}\big(f(x)\big)=f(x)+\delta,
+\qquad
+\delta=\operatorname{stopgrad}\Big(\operatorname{round}\big(f(x)\big)-f(x)\Big),
+\]
+where $\operatorname{stopgrad}$ means: same value in the forward pass, treated as a constant (zero derivative) in the backward pass.
+
+\paragraph{Forward.} $f(x)+\delta=\operatorname{round}\big(f(x)\big)$ exactly, so the network still sees quantized values.
+
+\paragraph{Backward.} $\delta$ is a constant, so
+\[
+\frac{\partial q}{\partial f(x)}=\frac{\partial f(x)}{\partial f(x)}+\underbrace{\frac{\partial \delta}{\partial f(x)}}_{=\,0}=I .
+\]
+Substituting into the chain rule of the previous slide,
+\[
+\frac{\partial \hat x}{\partial x}=s_f\cdot I\cdot\frac{1}{s_f}=I,
+\qquad\text{hence}\qquad
+\nabla_x L=\nabla_{\hat x}L .
+\]
+
+\paragraph{Effect.} The gradient reaching $x$ is no longer zero, so $x$ and earlier layers update and training works.
 
 \end{document}
