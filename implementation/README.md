@@ -27,12 +27,14 @@ All runs use the same seed, data, model and optimizer. Only the dequantization s
 - `config.py`: all hyperparameters and the quantization settings (`METHOD`, `BITS`, `LAMBDA`)
 - `data.py`: dataset, character tokenizer, 90/10 split, `get_batch`
 - `data/tinyshakespeare.txt`: the dataset (about 1.1M characters)
+- `model.py`: char-level GPT adapted from my `gpt.py`; linear layers inside the blocks are built by `Lin()` so they can be swapped for quantized ones
 
-Still to come: `quant.py` (the quantizer and both dequantizers), `model.py` (GPT with quantized linear layers), `train.py`, and plots.
+Still to come: `quant.py` (the quantizer and both dequantizers), `train.py`, and plots.
 
 ## Run
 
 ```bash
 cd implementation
-python data.py   # sanity check of the data pipeline
+python data.py    # sanity check of the data pipeline
+python model.py   # sanity check: forward pass, initial loss ≈ ln(65)
 ```
