@@ -1,0 +1,6 @@
+8083_Robust_Training_of_Neural.pdf
+*.aux
+*.log
+*.out
+*.synctex.gz
+.DS_Store

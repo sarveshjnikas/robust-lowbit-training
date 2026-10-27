@@ -1,0 +1,62 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section{Chain rule}
+
+\paragraph{Setup.} Let $h:\R^n\to\R^m$ be one layer and $\ell:\R^m\to\R$ be everything after it (the rest of the network and the loss), so the loss is $L(x)=\ell\big(h(x)\big)$. The \emph{local Jacobian} of the layer is the $m\times n$ matrix
+\[
+J_h(x)=\frac{\partial h}{\partial x},\qquad (J_h)_{ij}=\frac{\partial h_i}{\partial x_j}.
+\]
+
+\paragraph{Chain rule.}
+\[
+\nabla_x L \;=\; J_h(x)^{\top}\,\nabla \ell\big(h(x)\big).
+\]
+Here $\nabla \ell\big(h(x)\big)$ is the \emph{downstream gradient} (what the rest of the network wants the layer's output to do), and $J_h(x)^{\top}$ converts it into a gradient on the layer's input $x$.
+
+\paragraph{Intuition.} The downstream gradient says how the loss would change if the layer's \emph{output} moved. The local Jacobian says how the layer's output moves when its \emph{input} $x$ moves. Multiplying the two gives how the loss changes when $x$ moves, which is what gradient descent needs to update $x$. Backpropagation repeats this layer by layer, so every layer's local Jacobian is a factor in the gradient that reaches earlier layers.
+
+\paragraph{Two cases relevant to this paper.}
+\begin{enumerate}
+\item \textbf{Local Jacobian is zero}, $J_h(x)=0$. Then
+\[
+\nabla_x L = 0 \quad\text{for every downstream gradient}.
+\]
+\emph{Meaning:} small changes to $x$ do not change the layer's output, so the loss gives $x$ no direction to move. Gradient descent never updates $x$, and nothing before this layer learns either. This is what rounding (quantization) does.
+
+\item \textbf{Local Jacobian is the identity}, $J_h(x)=I$. Then
+\[
+\nabla_x L = \nabla \ell\big(h(x)\big).
+\]
+\emph{Meaning:} the downstream gradient is passed back unchanged, as if the layer did nothing. Whatever the layer actually did to $x$ (for example, adding a rounding error) has no effect on the gradient, so earlier layers get no signal about it. This is what the Straight-Through Estimator (STE) assumes.
+\end{enumerate}
+
+\section{Ridge regression}
+
+\paragraph{Why needed.} The paper's dequantizer $g$ is a ridge-regression fit of the original $x$ from the rounded $q$ (with $u=q$, $v=x$ below).
+
+\paragraph{Notation.} For $u,v\in\R^N$: $\bar u=\frac1N\sum_i u_i$, $\overline{uv}=\frac1N\sum_i u_iv_i$, $\operatorname{Var}_u=\overline{u^2}-\bar u^{2}$, $\operatorname{Cov}_{uv}=\overline{uv}-\bar u\,\bar v$, and $\mathbf 1$ is the all-ones vector.
+
+\paragraph{Problem.} Fit $v\approx a\,u+c\mathbf 1$, penalizing only the slope:
+\[
+\min_{a,c}\ \frac{1}{2N}\|a\,u+c\mathbf 1-v\|^2+\frac{\lambda}{2}a^2,\qquad \lambda>0 .
+\]
+Setting derivatives to zero:
+\[
+c^*=\bar v-a^*\bar u,\qquad a^*=\frac{\operatorname{Cov}_{uv}}{\operatorname{Var}_u+\lambda}.
+\]
+Without intercept ($c=0$): $a^*=\dfrac{\overline{uv}}{\overline{u^2}+\lambda}$.
+
+\paragraph{Fit.} The vector of the line's predictions at the data points:
+\[
+\text{fit}=a^*u+c^*\mathbf 1=a^*(u-\bar u\mathbf 1)+\bar v\mathbf 1 .
+\]
+
+\paragraph{Role of $\lambda$.} (i) \emph{Stability:} the denominator is at least $\lambda>0$, so no division by zero even if all $u_i$ are equal. (ii) \emph{Shrinkage:} as $\lambda\to\infty$, $a^*\to0$ and the fit becomes the mean $\bar v\mathbf 1$.
+
+\end{document}
