@@ -1,13 +1,28 @@
-# QUANTIZER: q = f(x) + stopgrad(delta)  (PAPER EQ. 1, CODE SNIPPET 1)
+# QUANTIZATION: NOTATION FOLLOWS notes.tex (SECTIONS 2-4)
 import torch
 
-def quantize(x, bits, eps=1e-8):
-    # AFFINE f: MAP [min, max] OF EACH ROW ONTO THE INTEGER GRID {0, ..., 2^k - 1}
-    # ROW = ONE OUTPUT CHANNEL FOR WEIGHTS, ONE TOKEN FOR ACTIVATIONS
-    lo = x.amin(-1, keepdim=True)              # b_f: REAL VALUE OF INTEGER 0
-    hi = x.amax(-1, keepdim=True)
-    s = (hi - lo + eps) / (2**bits - 1)        # s_f: GRID STEP IN REAL UNITS
-    fx = (x - lo) / s                          # f(x)
-    delta = (torch.round(fx) - fx).detach()    # ROUNDING ERROR, NO GRADIENT
-    q = fx + delta                             # FORWARD: round(f(x)). BACKWARD: dq/df(x) = I
-    return q, s, lo
+def quantize(x, k, eps=1e-8):
+    # STEPS 1-2: q = f(x) + stopgrad(delta), AFFINE f ONTO THE GRID {0, ..., 2^k - 1}  (PAPER EQ. 1)
+    # EACH ROW OF x IS ONE BLOCK: AN OUTPUT CHANNEL FOR WEIGHTS, A TOKEN FOR ACTIVATIONS
+    x_min = x.amin(-1, keepdim=True)
+    x_max = x.amax(-1, keepdim=True)
+    s_f = (x_max - x_min + eps) / (2**k - 1)   # GRID STEP IN REAL UNITS
+    b_f = x_min                                # REAL VALUE OF INTEGER 0 (q_min = 0)
+    f_x = (x - b_f) / s_f                      # f(x)
+    delta = (torch.round(f_x) - f_x).detach()  # ROUNDING ERROR, STOPGRAD
+    q = f_x + delta                            # FORWARD: round(f(x)). BACKWARD: dq/df(x) = I
+    return q, s_f, b_f
+
+def x_hat(q, s_f, b_f):
+    # STEP 3, STANDARD (USED WITH STE): x_hat = s_f q + b_f 1
+    return s_f * q + b_f
+
+def g(q, x, lam=1e-2):
+    # STEP 3, PAPER (EQ. 3): RIDGE FIT OF x FROM q, PER ROW.  g(q) = s_g q + b_g 1
+    q_bar = q.mean(-1, keepdim=True)
+    x_bar = x.mean(-1, keepdim=True)
+    var_q = ((q - q_bar) ** 2).mean(-1, keepdim=True)
+    cov_xq = ((x - x_bar) * (q - q_bar)).mean(-1, keepdim=True)
+    s_g = cov_xq / (var_q + lam)               # DEPENDS ON q, SO ON delta. NOT DETACHED: GRADIENT FLOWS THROUGH IT
+    b_g = x_bar - s_g * q_bar
+    return s_g * q + b_g
