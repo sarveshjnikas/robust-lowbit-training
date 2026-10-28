@@ -37,6 +37,8 @@ Float baseline: 1.586.
 ![Training loss at 1 bit](plots/loss_k1.png)
 ![Validation loss vs bits](plots/val_vs_bits.png)
 
+Gradient check (`grad_check.py`, 1 bit, block of 64): two inputs with the same integers $q$ but rounding errors $\delta$ that differ by up to 0.106. The gradient reaching $x$ changes by 0.0000 under STE and by up to 0.0144 under ridge.
+
 ## Files
 
 - `config.py`: all hyperparameters and the quantization settings (`METHOD`, `BITS`, `LAMBDA`)
@@ -46,8 +48,7 @@ Float baseline: 1.586.
 - `quant.py`: quantizer $q=f(x)+\text{stopgrad}(\delta)$, standard dequantization `x_hat`, ridge dequantization `g`, and `QLinear`
 - `train.py`: trains one configuration, saves loss curves to `runs/<name>.json`
 - `plots.py`: reads `runs/*.json`, writes the two figures to `plots/`
-
-Still to come: the gradient check.
+- `grad_check.py`: same $q$, different $\delta$; STE's gradient does not change, ridge's does
 
 ## Run
 
@@ -59,4 +60,5 @@ python train.py --method float
 python train.py --method ste --bits 1
 python train.py --method ridge --bits 1
 python plots.py
+python grad_check.py
 ```
