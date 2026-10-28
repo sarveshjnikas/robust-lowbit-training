@@ -29,7 +29,10 @@ All runs use the same seed, data, model and optimizer. Only the dequantization s
 - `data/tinyshakespeare.txt`: the dataset (about 1.1M characters)
 - `model.py`: char-level GPT adapted from my `gpt.py`; linear layers inside the blocks are built by `Lin()` so they can be swapped for quantized ones
 
-Still to come: `quant.py` (the quantizer and both dequantizers), `train.py`, and plots.
+- `quant.py`: quantizer $q=f(x)+\text{stopgrad}(\delta)$, standard dequantization `x_hat`, ridge dequantization `g`, and `QLinear`
+- `train.py`: trains one configuration, saves loss curves to `runs/<name>.json`
+
+Still to come: plots and the gradient check.
 
 ## Run
 
@@ -37,4 +40,7 @@ Still to come: `quant.py` (the quantizer and both dequantizers), `train.py`, and
 cd implementation
 python data.py    # sanity check of the data pipeline
 python model.py   # sanity check: forward pass, initial loss ≈ ln(65)
+python train.py --method float
+python train.py --method ste --bits 1
+python train.py --method ridge --bits 1
 ```
