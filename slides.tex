@@ -122,6 +122,18 @@ Substituting into the chain rule of the previous slide,
 \vfill
 \noindent{\small\textit{Source:} Ye et al., ``Robust Training of Neural Networks at Arbitrary Precision and Sparsity,'' ICLR 2026, Fig.~1.}
 
+\slide{The fix: ridge regression dequantization}
+
+\slide{Why it works: the Jacobian sees $\delta$}
+
+\slide{Role of $\lambda$}
+
+\slide{Sparsity as quantization}
+
+\slide{Theorem 1}
+
+\slide{Results from the paper}
+
 \slide{Toy implementation}
 
 \paragraph{Model.} A small character-level GPT (decoder-only transformer): 4 blocks, 4 attention heads, embedding size 128, context of 64 characters, 0.82M parameters. Built following Karpathy's ``Let's build GPT: from scratch'' and nanoGPT, the same family as the paper's nanoGPT Shakespeare experiment.
@@ -158,5 +170,9 @@ ridge & 0.106 & 0.0144
 \end{center}
 
 \noindent\textbf{Size.} Float32 model 3.19 MB; at 1 bit 250 KB (12.7$\times$ smaller).
+
+\slide{Limitations and how to improve}
+
+\slide{Takeaway}
 
 \end{document}
