@@ -4,11 +4,14 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from config import block_size, n_embd, n_head, n_layer, dropout
+from config import block_size, n_embd, n_head, n_layer, dropout, METHOD, BITS, LAMBDA
+from quant import QLinear
 
 def Lin(fan_in, fan_out, bias=True):
-    # PLACEHOLDER: PLAIN LINEAR FOR NOW. quant.py WILL RETURN A QUANTIZED LINEAR (STE OR RIDGE) BASED ON config.METHOD
-    return nn.Linear(fan_in, fan_out, bias=bias)
+    # FLOAT RUN: PLAIN LINEAR. OTHERWISE: QUANTIZED LINEAR WITH THE CONFIGURED METHOD AND BIT-WIDTH
+    if METHOD == "float":
+        return nn.Linear(fan_in, fan_out, bias=bias)
+    return QLinear(fan_in, fan_out, bias=bias, method=METHOD, k=BITS, lam=LAMBDA)
 
 class Head(nn.Module):
     def __init__(self, head_size):

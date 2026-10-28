@@ -1,5 +1,7 @@
 # QUANTIZATION: NOTATION FOLLOWS notes.tex (SECTIONS 2-4)
 import torch
+import torch.nn as nn
+from torch.nn import functional as F
 
 def quantize(x, k, eps=1e-8):
     # STEPS 1-2: q = f(x) + stopgrad(delta), AFFINE f ONTO THE GRID {0, ..., 2^k - 1}  (PAPER EQ. 1)
@@ -26,3 +28,17 @@ def g(q, x, lam=1e-2):
     s_g = cov_xq / (var_q + lam)               # DEPENDS ON q, SO ON delta. NOT DETACHED: GRADIENT FLOWS THROUGH IT
     b_g = x_bar - s_g * q_bar
     return s_g * q + b_g
+
+class QLinear(nn.Linear):
+    # LINEAR LAYER WITH k-BIT WEIGHTS AND k-BIT INPUT ACTIVATIONS (A{k}W{k}). BIAS STAYS FULL PRECISION
+    def __init__(self, fan_in, fan_out, bias=True, method="ste", k=1, lam=1e-2):
+        super().__init__(fan_in, fan_out, bias=bias)
+        self.method, self.k, self.lam = method, k, lam
+
+    def deq(self, x):
+        # QUANTIZE, THEN STEP 3 WITH THE CHOSEN DEQUANTIZER
+        q, s_f, b_f = quantize(x, self.k)
+        return x_hat(q, s_f, b_f) if self.method == "ste" else g(q, x, self.lam)
+
+    def forward(self, x):
+        return F.linear(self.deq(x), self.deq(self.weight), self.bias)
