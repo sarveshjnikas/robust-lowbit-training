@@ -13,6 +13,16 @@
 \end{center}
 \vspace{6pt}\hrule\vspace{10pt}
 
+\paragraph{Quantization in one example (illustrative numbers).} Weights $x=(0.9,\,-0.3,\,0.1,\,0.6)$, $k=2$ bits, integers $\{0,1,2,3\}$.
+\begin{enumerate}
+\item Grid: smallest value $\to 0$, largest $\to 3$: $s_f=\dfrac{0.9-(-0.3)}{3}=0.4$, $b_f=-0.3$.
+\item Rescale: $f(x)=(x+0.3)/0.4=(3,\,0,\,1,\,2.25)$.
+\item Round: $q=(3,\,0,\,1,\,2)$. Stored: 2 bits per weight, plus $s_f$, $b_f$.
+\item Back: $\hat x=0.4\,q-0.3=(0.9,\,-0.3,\,0.1,\,0.5)$. The last weight moved $0.6\to0.5$: the rounding error $s_f\delta$.
+\end{enumerate}
+Ridge instead maps $q$ back to $(0.935,\,-0.285,\,0.122,\,0.528)$: the error is spread over all four weights, total squared error $0.010\to0.007$.
+
+\clearpage
 \section{Chain rule}
 
 \paragraph{Setup.} Let $h:\R^n\to\R^m$ be one layer and $\ell:\R^m\to\R$ be everything after it (the rest of the network and the loss), so the loss is $L(x)=\ell\big(h(x)\big)$. The \emph{local Jacobian} of the layer is the $m\times n$ matrix
@@ -125,5 +135,36 @@ Forward: $q=\operatorname{round}(f(x))$ exactly. Backward: $\frac{\partial q}{\p
 \text{forward: }\ \hat x=x+s_f\,\delta,\qquad\qquad \text{backward: }\ \frac{\partial \hat x}{\partial x}=I .
 \]
 The forward pass is changed by the error, but the local Jacobian is the same as with no quantization at all; $\delta$ does not appear in it. Earlier layers get no signal about how their rounding error hurts the loss, so they cannot learn to be robust to it. At 1--2 bits $s_f\delta$ is large and STE training becomes unstable. ($\delta$ still affects \emph{where} $\nabla_{\hat x}L$ is evaluated; it is absent only from the local factor $\partial\hat x/\partial x$, which is the factor the paper changes.)
+
+
+\clearpage
+\section{Affine vs.\ linear at 1 bit (paper Fig.~1b)}
+
+\begin{center}
+\includegraphics[height=55mm]{figs/fig1b_affine.png}
+\end{center}
+
+\paragraph{Setup.} A1W1 (1-bit weights and activations), SCQ128 (one block = 128 weights), metric = next-token accuracy on C4.
+
+\paragraph{What the figure shows.}
+\begin{itemize}
+\item STE: linear $0.3399$, affine $0.3397$. Affine gives nothing.
+\item Ridge: linear $0.3547$, affine $0.3751$. Affine gives $+0.020$.
+\item Even ridge-linear beats STE-affine.
+\end{itemize}
+
+\paragraph{Why at 1 bit.} One bit means two levels. Linear gives two levels symmetric about zero, $\{-s,+s\}$: one free number. Affine gives two levels $\{b,\,b+s\}$: two free numbers, so both levels can sit where the weights actually are. Affine is strictly more expressive; the question is whether the method uses it.
+
+\paragraph{STE does not use it.} The levels are $s_f$, $b_f$, fixed by $x_{\min}$, $x_{\max}$ before rounding. At 1 bit every weight is reconstructed as either $x_{\min}$ or $x_{\max}$, the two most extreme values, and the gradient carries no information about how well the levels fit ($\delta$ is invisible). The extra offset is set by the extremes, not by the data.
+
+\paragraph{Ridge does.} $g(q)=s_g q+b_g\mathbf 1$ is a least-squares fit of $x$ on $q$. With $q\in\{0,1\}$ (and $\lambda\to0$) the fitted levels are
+\[
+g(0)=\text{mean of the weights rounded to }0,\qquad g(1)=\text{mean of the weights rounded to }1,
+\]
+the two cluster means: the best possible two levels for the current assignment. Linear ridge has only $s_g$, so its levels are forced to be symmetric; affine ridge places each level independently. And because $s_g$, $b_g$ depend on $q$, the gradient tells earlier layers how the assignment affects the fit.
+
+\paragraph{One line.} Affine adds a free offset; only a dequantizer that is fitted to the data (ridge) can put that offset to use.
+
+\paragraph We have two kinds of quantization: linear, which is just scaling, and affine, which is scaling plus shifting. Because of the shift, affine has more flexibility. At 1 bit this matters most, since each block gets only two levels. STE wastes that flexibility: it sets $s_f$ and $b_f$ from the smallest and largest weight in the block, so if one weight is an outlier, one of the two levels is spent on it and everything else is squashed onto the other. And STE's gradient cannot see this, so training never fixes it. Ridge instead fits the two levels to the weights, so each level sits at the average of its group, and its gradient knows how good that fit is. That is how, at 1 bit, ridge unlocks the flexibility affine provides.
 
 \end{document}
