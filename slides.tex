@@ -33,7 +33,7 @@ x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xright
 \]
 \begin{itemize}
 \item $x\in\R^N$: float block, kept and updated during training.
-\item $f(x)=\dfrac{x-b_f\mathbf 1}{s_f}$: rescales $x$ onto the $k$-bit integer grid; $s_f$ = grid step in real units, $b_f$ = real value of integer $0$ ($b_f=0$ in the linear case).
+\item $f(x)=\dfrac{x-b_f\mathbf 1}{s_f}$: rescales $x$ onto the $k$-bit integer grid $\{0,\dots,2^k-1\}$, with $s_f=\dfrac{x_{\max}-x_{\min}}{2^k-1}$, $b_f=x_{\min}$.
 \item $q=\operatorname{round}\big(f(x)\big)=f(x)+\delta$: the integers, with rounding error $|\delta_i|\le\frac12$.
 \item $\hat x=s_f\,q+b_f\mathbf 1=x+s_f\,\delta$: $x$ as seen after quantization; this is what the next layer uses.
 \end{itemize}
@@ -63,49 +63,30 @@ Hence $\dfrac{\partial q}{\partial f(x)}=0$ almost everywhere, so
 
 \slide{The standard fix: Straight-Through Estimator (STE)}
 
-\paragraph{Idea.} Forward pass: round exactly as before. Backward pass: pass the gradient straight through the rounding, i.e.\ replace the true slope of $\operatorname{round}$ (zero) by $1$. This is a chosen rule, not a derived derivative.
-
-\paragraph{Decomposition.} Write the rounded value as the smooth part plus the rounding error:
+\paragraph{Idea.} Round as before in the forward pass, but treat the rounding error as a constant in the backward pass:
 \[
-q=\operatorname{round}\big(f(x)\big)=f(x)+\delta,
-\qquad
-\delta=\operatorname{stopgrad}\Big(\operatorname{round}\big(f(x)\big)-f(x)\Big),
+q=f(x)+\delta,\qquad \delta=\operatorname{stopgrad}\Big(\operatorname{round}\big(f(x)\big)-f(x)\Big),
 \]
-where $\operatorname{stopgrad}$ means: same value in the forward pass, treated as a constant (zero derivative) in the backward pass.
+where $\operatorname{stopgrad}$ keeps the value in the forward pass and has zero derivative in the backward pass.
 
-\paragraph{Forward.} $f(x)+\delta=\operatorname{round}\big(f(x)\big)$ exactly, so the network still sees quantized values.
-
-\paragraph{Backward.} $\delta$ is a constant, so
-\[
-\frac{\partial q}{\partial f(x)}=\frac{\partial f(x)}{\partial f(x)}+\underbrace{\frac{\partial \delta}{\partial f(x)}}_{=\,0}=I .
-\]
-Substituting into the chain rule of the previous slide,
-\[
-\frac{\partial \hat x}{\partial x}=s_f\cdot I\cdot\frac{1}{s_f}=I,
-\qquad\text{hence}\qquad
-\nabla_x L=\nabla_{\hat x}L .
-\]
-
-\paragraph{Effect.} The gradient reaching $x$ is no longer zero, so $x$ and earlier layers update and training works.
-
-\vfill
-\noindent{\small\textit{Reference:} Y.~Bengio, N.~L\'eonard, A.~Courville, ``Estimating or propagating gradients through stochastic neurons for conditional computation,'' arXiv:1308.3432, 2013.}
-
-\slide{Why STE fails: the blind spot}
-
-\paragraph{Forward and backward disagree.}
+\paragraph{Forward vs.\ backward.}
 \[
 \text{forward: }\ \hat x=x+s_f\,\delta,
 \qquad\qquad
-\text{backward: }\ \frac{\partial \hat x}{\partial x}=I .
+\text{backward: }\ \frac{\partial \hat x}{\partial x}=s_f\cdot I\cdot\frac{1}{s_f}=I,
+\quad \nabla_x L=\nabla_{\hat x}L .
 \]
+The gradient reaching $x$ is no longer zero, so training works.
+
+\paragraph{The blind spot.}
 \begin{itemize}
-\item The forward pass uses the rounded values: every entry is shifted by its rounding error $s_f\delta_i$, which changes the output and the loss.
-\item The local Jacobian is $I$: exactly what it would be with no quantization at all ($\hat x=x$). $\delta$ does not appear in it.
-\item So earlier layers get no signal about how rounding hurts the loss, and cannot learn to be robust to it. The paper calls $\delta$ a ``ghost of departed quantities'' (Berkeley, 1754).
-\item At 8 bits $s_f\delta$ is tiny and ignoring it is harmless. At 1--2 bits it is as large as the values themselves: the gradient no longer matches what the forward pass did, and training becomes unstable (STE diverges at A1W1, next slide, left).
-\item With affine quantization, STE barely learns the offset: no gain over linear (next slide, right).
+\item The forward pass shifts every entry by $s_f\delta_i$, but the Jacobian is $I$, exactly as with no quantization. $\delta$ does not appear in it.
+\item So earlier layers get no signal about how rounding hurts the loss, and cannot learn to be robust to it.
+\item At 8 bits $s_f\delta$ is tiny and this is harmless. At 1--2 bits it is as large as the values themselves: STE diverges, and gains nothing from affine quantization (next slide).
 \end{itemize}
+
+\vfill
+\noindent{\small\textit{Reference:} Y.~Bengio, N.~L\'eonard, A.~Courville, ``Estimating or propagating gradients through stochastic neurons for conditional computation,'' arXiv:1308.3432, 2013.}
 
 \slide{STE at 1 bit: results from the paper}
 
