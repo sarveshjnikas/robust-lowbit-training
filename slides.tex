@@ -23,9 +23,23 @@
 
 \slide{Why quantization, and the forward pass during training}
 
-\paragraph{Why quantization.} Modern neural networks are huge: a language model has billions of weights, each stored as a 32-bit or 16-bit floating-point number. This makes models too big to fit on a phone, slower to run, and costly in energy. Quantization stores each weight with far fewer bits: 4, 2 or 1 bit instead of 16 or 32.
-
-\paragraph{Training with quantization.} During training the network keeps the float weights $x$ and updates them by gradient descent. We could compute with $x$, but we deliberately use the quantized version $\hat x$ in the forward pass, so the network learns to be robust to the rounding it will face at inference. After training, $x$ is discarded; only the low-bit integers $q$ (plus one $s_f$, $b_f$ per block) are kept.
+\noindent
+\begin{minipage}[t]{0.44\textwidth}
+\textbf{Why quantization.}
+\begin{itemize}
+\item Billions of weights, each 32 or 16 bits.
+\item Too big for a phone, slow, costly in energy.
+\item Quantization: 4, 2 or 1 bit per weight.
+\end{itemize}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.53\textwidth}
+\textbf{Training with quantization.}
+\begin{itemize}
+\item Training keeps the float weights $x$.
+\item Forward pass uses the quantized $\hat x$; backward pass updates the float $x$.
+\item Inference keeps only $\hat x$ (stored as $q$ plus $s_f$, $b_f$ per block).
+\end{itemize}
+\end{minipage}
 
 \paragraph{The forward pass during training.}
 \[
@@ -82,7 +96,7 @@ The gradient reaching $x$ is no longer zero, so training works.
 \begin{itemize}
 \item The forward pass shifts every entry by $s_f\delta_i$, but the Jacobian is $I$, exactly as with no quantization. $\delta$ does not appear in it.
 \item So earlier layers get no signal about how rounding hurts the loss, and cannot learn to be robust to it.
-\item At 8 bits $s_f\delta$ is tiny and this is harmless. At 1--2 bits it is as large as the values themselves: STE diverges, and gains nothing from affine quantization (next slide).
+\item At 8 bits $s_f\delta$ is tiny and this is harmless. At 1--2 bits it is as large as the values themselves: STE diverges.
 \end{itemize}
 
 \vfill
