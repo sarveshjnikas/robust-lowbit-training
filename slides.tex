@@ -36,7 +36,7 @@
 \textbf{Training with quantization.}
 \begin{itemize}
 \item Training keeps the float weights $x$.
-\item Forward pass uses the quantized $\hat x$; backward pass updates the float $x$.
+\item Forward pass uses quantized $\hat x$; backward pass updates the float $x$.
 \item Inference keeps only $\hat x$ (stored as $q$ plus $s_f$, $b_f$ per block).
 \end{itemize}
 \end{minipage}
@@ -116,42 +116,5 @@ The gradient reaching $x$ is no longer zero, so training works.
 
 \vfill
 \noindent{\small\textit{Source:} Ye et al., ``Robust Training of Neural Networks at Arbitrary Precision and Sparsity,'' ICLR 2026, Fig.~1.}
-
-\slide{The fix: ridge regression dequantization}
-
-\slide{Why it works: the Jacobian sees $\delta$}
-
-\slide{Role of $\lambda$}
-
-\slide{Sparsity as quantization}
-
-\slide{Theorem 1}
-
-\slide{Results from the paper}
-
-\slide{Toy implementation}
-
-\noindent\textbf{Setup.} Character-level GPT (4 blocks, 0.82M parameters) on Tiny Shakespeare. All linear layers in the blocks quantized to $k$ bits (weights and activations, affine, per row); embeddings and output layer full precision. 3000 steps, same seed; only the dequantization differs: STE ($\hat x$) vs.\ ridge ($g$, $\lambda=0.01$), $k=1,2,4$.
-
-\vspace{4pt}\noindent
-\begin{minipage}[t]{0.49\textwidth}\centering
-\includegraphics[width=0.9\linewidth]{implementation/plots/loss_k1.png}\\[2pt]
-\small Training loss at A1W1.
-\end{minipage}\hfill
-\begin{minipage}[t]{0.49\textwidth}\centering
-\includegraphics[width=0.9\linewidth]{implementation/plots/val_vs_bits.png}\\[2pt]
-\small Final validation loss.
-\end{minipage}
-
-\vspace{6pt}\noindent
-\textbf{Gradient check} (1 bit). Same $q$, $\delta$ changed by 0.106: the gradient reaching $x$ changes by 0.0000 under STE and 0.0144 under ridge.\\
-\textbf{Size.} Float32 model 3.19 MB; at 1 bit 250 KB (12.7$\times$ smaller).
-
-\vfill
-\noindent{\small\textit{Reference:} model follows nanoGPT by A.~Karpathy, \texttt{github.com/karpathy/nanoGPT}.}
-
-\slide{Limitations and how to improve}
-
-\slide{Takeaway}
 
 \end{document}
