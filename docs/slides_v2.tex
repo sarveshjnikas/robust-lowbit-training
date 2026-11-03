@@ -1,16 +1,24 @@
 \documentclass[11pt]{article}
 \usepackage[paperwidth=254mm,paperheight=142.875mm,margin=12mm]{geometry}
-\usepackage{amsmath,amssymb}
+\usepackage{amsmath,amssymb,mathtools}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
 
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\Var}{\operatorname{Var}}
 \newcommand{\Cov}{\operatorname{Cov}}
 \newcommand{\point}[2]{\item \textbf{#1}\par\vspace{3pt}{\centering #2\par}}
 \newcommand{\plainpoint}[2]{\textbf{#1}\par\vspace{7pt}{\centering #2\par}\vspace{18pt}}
-\newcommand{\hl}[1]{\colorbox{yellow!45}{$\displaystyle #1$}}
+\newcommand{\hl}[1]{{\setlength{\fboxsep}{2pt}\colorbox{yellow!45}{$\displaystyle #1$}}}
+\newsavebox{\blockbox}
+\newenvironment{shadedblock}[1][]
+  {\par\vspace{8pt}\setlength{\fboxsep}{8pt}\setlength{\fboxrule}{0.6pt}%
+   \begin{lrbox}{\blockbox}\if\relax\detokenize{#1}\relax
+   \begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}\else
+   \begin{minipage}[t][#1]{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}\vspace{0pt}\fi}
+  {\end{minipage}\end{lrbox}\noindent\fcolorbox{gray!60}{gray!12}{\usebox{\blockbox}}\par}
 
 \newcommand{\slide}[1]{\clearpage\noindent{\Large\bfseries #1}\par\vspace{4pt}\hrule\vspace{10pt}}
 
@@ -110,75 +118,85 @@ The gradient reaching $x$ is no longer zero, so training works.
 \vfill
 \noindent{\small\textit{Source:} Ye et al., ``Robust Training of Neural Networks at Arbitrary Precision and Sparsity,'' ICLR 2026, Fig.~1.}
 
-\slide{The new approach: a denoising reconstruction $g$}
+\slide{The proposed approach: a denoising reconstruction $g$}
 
-{\setlength{\abovedisplayskip}{3pt}\setlength{\belowdisplayskip}{3pt}
-\paragraph{The change.} Keep $f$ and round. Replace $\hat x$ by a fitted reconstruction $g$.
-\begin{itemize}\setlength{\itemsep}{3pt}
-\item \textbf{Reconstruction.} A new affine map, fitted to $x$:
-\[
-\hat x=s_f\,q+b_f\mathbf 1\quad\longrightarrow\quad g(q)=s_g\,q+b_g\mathbf 1
-\]
-\item \textbf{Ridge regression objective.} Estimate $s_g$ and $b_g$ from the data:
-\[
-\min_{s_g,\,b_g}\ \frac{1}{2N}\big\|s_g\,q+b_g\mathbf 1-x\big\|^2+\frac{\lambda}{2}\,s_g^2
-\]
-\item \textbf{Solution.} Ridge regression has a closed form:
-\[
-s_g=\frac{\Cov_{xq}}{\Var_q+\hl{\lambda}},\qquad b_g=\bar x-s_g\,\bar q,\qquad \lambda=0.01
-\]
-{\centering\itshape \hl{\lambda} is the denoising knob.\par}
-\end{itemize}
+{\setlength{\abovedisplayskip}{8pt}\setlength{\belowdisplayskip}{8pt}
+\vspace{10pt}
+\noindent\textbf{The change.}\quad Keep $f$ and round. Replace $\hat x$ by a fitted reconstruction $g$.
+\begin{shadedblock}
+\begin{minipage}[t]{0.29\linewidth}\centering
+\textbf{Reconstruction.}\par\vspace{4pt}
+A new affine map.\par\vspace{14pt}
+$\hat x=s_f\,q+b_f\mathbf 1$\par\vspace{5pt}
+$\big\downarrow$\par\vspace{5pt}
+$g(q)=s_g\,q+b_g\mathbf 1$\par
+\end{minipage}\hfill\raisebox{-15mm}{\Large$\Longrightarrow$}\hfill
+\begin{minipage}[t]{0.29\linewidth}\centering
+\textbf{Ridge regression objective.}\par\vspace{4pt}
+Fit $s_g$ and $b_g$ to $x$.\par\vspace{14pt}
+$\displaystyle\min_{s_g,\,b_g}\ \frac{1}{2N}\big\|s_g\,q+b_g\mathbf 1-x\big\|^2+\frac{\lambda}{2}\,s_g^2$\par
+\end{minipage}\hfill\raisebox{-15mm}{\Large$\Longrightarrow$}\hfill
+\begin{minipage}[t]{0.29\linewidth}\centering
+\textbf{Solution.}\par\vspace{4pt}
+Ridge regression has a closed form.\par\vspace{14pt}
+$\displaystyle s_g=\frac{\Cov_{xq}}{\Var_q+\hl{\lambda}},\qquad b_g=\bar x-s_g\,\bar q$\par\vspace{8pt}
+{\itshape \hl{\lambda} is the denoising knob.\par}
+\end{minipage}
+\end{shadedblock}
 
+\vspace{26pt}
+\noindent\textbf{Training with $g$.}\quad One forward and one backward pass.
+\begin{shadedblock}
 \paragraph{Forward pass.} The next layer gets $g(q)$, not $\hat x$.
 \[
 x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xrightarrow{\ g\ }\ g(q)\ \longrightarrow\ \text{rest of network}\ \longrightarrow\ L
 \]
+\vspace{8pt}
 
 \paragraph{Backward pass.} Round stays straight through, as in STE. But $g$ now depends on $\delta$.
 \[
 \nabla_xL\ \xleftarrow[\text{straight through}]{\ \times\,1/s_f\ }\ \nabla_qL\ \xleftarrow[\text{depends on }\delta]{\ \times\,(\partial g/\partial q)^{\top}\ }\ \nabla_gL\ \longleftarrow\ \text{rest of network}\ \longleftarrow\ L
 \]
+\end{shadedblock}
 }
 
-\slide{Why it works: the Jacobian trick}
+\slide{Why it works: the backward pass sees $\delta$}
 
-{\setlength{\abovedisplayskip}{6pt}\setlength{\belowdisplayskip}{6pt}
-\paragraph{The idea.} Both methods guess round's gradient the same way. Only the Jacobian differs$^*$:
-\[
-J_{\text{STE}}=\frac{\partial}{\partial x}\big[s_f\,q+b_f\mathbf 1\big]=\underbrace{0}_{\text{exact}}+\underbrace{I}_{\text{guess}}
-\qquad\qquad
-J_{g}=\frac{\partial}{\partial x}\big[s_g(x,q)\,q+b_g(x,q)\,\mathbf 1\big]=\underbrace{P}_{\text{exact}}+\underbrace{\rho\,(I-P)}_{\text{guess}}+\underbrace{c\,u\,r^{\top}}_{\text{error}}
-\]
+{\setlength{\abovedisplayskip}{8pt}\setlength{\belowdisplayskip}{8pt}
+\paragraph{The idea.} Both methods replace round's slope by a constant surrogate, so $\partial q/\partial x=I/s_f$. Only the step after round differs.
 
-\paragraph{The three parts of $J_g$.}
-\begin{itemize}\setlength{\itemsep}{6pt}
-\item \textbf{Exact.} Moving $x$ moves the fitted levels (the reconstruction levels):
+\vspace{6pt}
+\begin{shadedblock}
+\paragraph{STE.} $\hat x=s_f\,q+b_f\mathbf 1$ has the same slope for every $\delta$.
 \[
-P=\frac{\mathbf 1\mathbf 1^{\top}}{N}+\frac{u\,u^{\top}}{N(\Var_q+\lambda)},\qquad u=q-\bar q\mathbf 1
+\frac{\partial \hat x}{\partial q}=s_f\,I\quad\Longrightarrow\quad\nabla_xL=\nabla_{\hat x}L
 \]
-\item \textbf{Guess.} Scaled by $\rho$: the fitted scale $s_g$ over the grid scale $s_f$.
+\end{shadedblock}
+
+\vspace{10pt}
+\begin{shadedblock}
+\paragraph{With $g$.} The gradient reaches $x$ by two paths.
 \[
-\rho=\frac{s_g}{s_f}=0.29,\ \ 0.87,\ \ 0.99\qquad\text{at 1, 2, 4 bits}
+\nabla_xL=\underbrace{\frac{1}{s_f}\Big(\frac{\partial g}{\partial q}\Big)^{\!\top}\nabla_gL}_{\text{through $q$}}
+\;+\;\underbrace{\vphantom{\frac{1}{s_f}}\Big(\frac{\partial g}{\partial x}\Big)^{\!\top}\nabla_gL}_{\text{through $x$}}
 \]
-{\centering\itshape Coarse rounding gives a small $\rho$, so the guess counts less.\par}
-\item \textbf{Error.} Carries the rounding error into the gradient:
+\vspace{4pt}
+\begin{itemize}\setlength{\itemsep}{8pt}
+\item \textbf{Through $q$.} Changes with the rounding error. It carries $\delta$ into the gradient:
 \[
-r=x-g(q),\qquad c=\frac{1}{s_fN(\Var_q+\lambda)}
+\frac{\partial g}{\partial q}=\underbrace{\vphantom{\Big(\frac{\partial s_g}{\partial q}\Big)}s_g\,I}_{\mathclap{\substack{\text{like STE's }s_fI\text{,}\\\text{but }s_g\text{ carries }\delta}}}\quad+\;\;\underbrace{q\Big(\frac{\partial s_g}{\partial q}\Big)^{\!\top}+\mathbf 1\Big(\frac{\partial b_g}{\partial q}\Big)^{\!\top}}_{\substack{\text{new terms,}\\\text{carry }\delta\text{ through }x-g(q)}}
 \]
+\item \textbf{Through $x$.} For the current $q$, $g$ is linear in $x$. \textit{No information about the rounding error.}
 \end{itemize}
+\end{shadedblock}
 }
 
-\vfill
-\noindent{\small $^*$Derived by us, not in the paper. Checked against autograd. $\rho$ measured on a random block of 64 values.}
 
 \slide{Results from the paper}
 
-{\setlength{\abovedisplayskip}{3pt}\setlength{\belowdisplayskip}{3pt}
-\paragraph{Small GPT on Shakespeare, 1-bit weights and activations.} STE's loss blows up; $g$ trains smoothly (slide 5).
-
-\vspace{6pt}
-\paragraph{Gemma 3 language model (1B), trained from scratch.} Score: share of next tokens predicted correctly.
+\newcommand{\resheight}{30mm}
+\begin{shadedblock}
+\paragraph{Gemma 3 language model (1B), trained from scratch.} Score: share of next tokens predicted correctly.\par\vspace{8pt}
 \begin{center}
 \renewcommand{\arraystretch}{1.3}
 \begin{tabular}{lccc}
@@ -195,94 +213,131 @@ bits for weights and activations & STE & with $g$ & gain \\
 \begin{itemize}
 \item \textbf{STE can diverge.} At 1.5 bits ($-1,0,1$), one STE run ends in NaN. $g$ still trains, reaching 0.330.
 \end{itemize}
+\end{shadedblock}
 
-\vspace{16pt}
+\vspace{6pt}
 \noindent
-\begin{minipage}[t]{0.48\textwidth}
-\paragraph{Bigger model, fewer bits.} Quantized Gemma 3 4B beats 1B.\par\vspace{6pt}
+\begin{minipage}[t]{0.49\textwidth}
+\begin{shadedblock}[\resheight]
+\textbf{Bigger model, fewer bits.}\par\vspace{3pt}Quantized Gemma 3 4B beats 1B.\par\vspace{4pt}
 \begin{itemize}\setlength{\itemsep}{6pt}
 \item 4B, 1-bit weights, half pruned: 650 MB, score 0.452.
 \item 1B, full precision: 1400 MB, score 0.449.
 \end{itemize}
+\end{shadedblock}
 \end{minipage}\hfill
-\begin{minipage}[t]{0.48\textwidth}
-\paragraph{Other tasks, 4 bits, no extra tuning.} Matches full precision.\par\vspace{6pt}
+\begin{minipage}[t]{0.49\textwidth}
+\begin{shadedblock}[\resheight]
+\textbf{Other tasks, 4 bits, no extra tuning.}\par\vspace{3pt}Matches full precision.\par\vspace{4pt}
 \begin{itemize}\setlength{\itemsep}{6pt}
 \item Images (ResNet-50): 76.45\% vs.\ 76.41\%.
 \item Translation (English--German): 29.71 vs.\ 29.49 BLEU.
 \end{itemize}
+\end{shadedblock}
 \end{minipage}
-}
 
-\slide{Toy implementation}
+\slide{Our implementation: training at 1 bit}
+\newcommand{\implheight}{18mm}
 
-\noindent\textbf{Setup.} Character-level GPT (4 blocks, 0.82M parameters) on Tiny Shakespeare. All linear layers in the blocks quantized to $k$ bits (weights and activations, affine, per row); embeddings and output layer full precision. 3000 steps, same seed; only the dequantization differs: STE ($\hat x$) vs.\ ridge ($g$, $\lambda=0.01$), $k=1,2,4$.
+\noindent\textbf{Setup.}\quad Small GPT on Shakespeare, 1-bit weights and activations.
 
-\vspace{4pt}\noindent
-\begin{minipage}[t]{0.49\textwidth}\centering
-\includegraphics[width=0.9\linewidth]{implementation/plots/loss_k1.png}\\[2pt]
-\small Training loss at A1W1.
+\begin{shadedblock}
+\centering
+\includegraphics[width=0.86\linewidth]{implementation/onebit/plots/loss_three.png}
+\end{shadedblock}
+
+\vspace{8pt}
+\noindent
+\begin{minipage}[t]{0.49\textwidth}
+\begin{shadedblock}[\implheight]
+\vspace{0pt plus 1fill}
+\begin{itemize}\setlength{\itemsep}{8pt}
+\item \textbf{STE stalls, $g$ keeps learning.} In all three runs.
+\item \textbf{STE's activations blow up.} About $340\times$ too large.
+\end{itemize}
+\vspace{0pt plus 1fill}
+\end{shadedblock}
 \end{minipage}\hfill
-\begin{minipage}[t]{0.49\textwidth}\centering
-\includegraphics[width=0.9\linewidth]{implementation/plots/val_vs_bits.png}\\[2pt]
-\small Final validation loss.
+\begin{minipage}[t]{0.49\textwidth}
+\begin{shadedblock}[\implheight]
+\vspace{0pt plus 1fill}
+\begin{itemize}\setlength{\itemsep}{8pt}
+\item \textbf{At $3\times$ the learning rate.} STE's training loss rises.
+\item \textbf{Reason.} Bigger steps on a rounding-blind gradient.
+\end{itemize}
+\vspace{0pt plus 1fill}
+\end{shadedblock}
 \end{minipage}
-
-\vspace{6pt}\noindent
-\textbf{Gradient check} (1 bit). Same $q$, $\delta$ changed by 0.106: the gradient reaching $x$ changes by 0.0000 under STE and 0.0144 under ridge.\\
-\textbf{Size.} Float32 model 3.19 MB; at 1 bit 250 KB (12.7$\times$ smaller).
 
 \vfill
-\noindent{\small\textit{Reference:} model follows nanoGPT by A.~Karpathy, \texttt{github.com/karpathy/nanoGPT}.}
+\noindent{\footnotesize\textit{Reference:} model and recipe follow nanoGPT by A.~Karpathy, \texttt{github.com/karpathy/nanoGPT}.}
 
 \slide{Advantages and disadvantages}
+\newcommand{\advheight}{78mm}
 
 \vspace{14pt}
 \noindent
 \begin{minipage}[t]{0.48\textwidth}
-\textbf{Advantages.}\par\vspace{-4pt}
-\begin{itemize}\setlength{\itemsep}{20pt}
+\textbf{Advantages.}
+\begin{shadedblock}[\advheight]
+\vspace{0pt plus 0.6fill}
+\begin{itemize}\setlength{\itemsep}{0pt plus 1fill}
 \point{Makes 1-bit training work.}{1-bit matmul is just XNOR + bit-count,\\[3pt]
-\textit{$256\times$ cheaper than 16-bit.}\\[10pt]
-STE can diverge there; $g$ trains smoothly.}
+\textit{$256\times$ cheaper than 16-bit.}}
 \point{Better reconstruction.}{Closer to $x$ than standard dequantization.}
-\point{Extends to sparsity.}{Sparsity is quantization with small values thresholded to 0:\\[4pt]
+\point{Extends to sparsity.}{Quantization with small values set to 0:\\[4pt]
 $x\ \xrightarrow{\ \operatorname{threshold}\ }\ x_S\ \xrightarrow{\ f,\ \operatorname{round}\ }\ q\ \xrightarrow{\ g\ }\ g(q)$}
 \end{itemize}
+\vspace{0pt plus 0.6fill}
+\end{shadedblock}
 \end{minipage}\hfill
 \begin{minipage}[t]{0.48\textwidth}
-\textbf{Disadvantages.}\par\vspace{-4pt}
-\begin{itemize}\setlength{\itemsep}{20pt}
-\point{Round is still a guess.}{``Without gradient estimation'' is too strong.}
+\textbf{Disadvantages.}
+\begin{shadedblock}[\advheight]
+\vspace{0pt plus 0.6fill}
+\begin{itemize}\setlength{\itemsep}{0pt plus 1fill}
+\point{Round still uses a surrogate.}{``Without gradient estimation'' is too strong.}
 \point{Small gain at 4 bits.}{Only $+0.002$, \textit{in the most common setting.}}
-\point{Extra storage.}{A scale and shift per 128 weights.}
 \point{Savings are estimates.}{No real hardware, no speed numbers.}
 \end{itemize}
+\vspace{0pt plus 0.6fill}
+\end{shadedblock}
 \end{minipage}
 
 \slide{Our takeaways}
+\newcommand{\takeheight}{60mm}
 
 \vspace{10pt}
 \noindent
 \begin{minipage}[t]{0.48\textwidth}
-\textbf{What convinced us.}\par\vspace{14pt}
-\plainpoint{A clean comparison.}{Only the reconstruction differs between the two methods.}
-\plainpoint{Consistent gains.}{$g$ wins in every setting, more at fewer bits.}
-\plainpoint{Our toy agrees.}{Better at 1--2 bits, a tie at 4 bits.}
+\vspace{0pt}\textbf{What convinced us.}
+\begin{shadedblock}[\takeheight]
+\begin{itemize}\setlength{\itemsep}{14pt}
+\point{A clean comparison.}{Only the reconstruction differs between the two methods.}
+\point{Consistent gains.}{$g$ wins in every setting, more at fewer bits.}
+\point{Our 1-bit run agrees.}{STE stalls; $g$ keeps learning.}
+\end{itemize}
+\end{shadedblock}
 \end{minipage}\hfill
 \begin{minipage}[t]{0.48\textwidth}
-\textbf{What we would question.}\par\vspace{14pt}
-\plainpoint{``No gradient estimation''.}{The paper claims it (abstract; Table 8).\\[6pt]
-But $\delta$ is detached, exactly as in STE:\\[9pt]
-$q=f(x)+\operatorname{stopgrad}(\delta)\ \Rightarrow\ \partial q/\partial f(x)=I$}
-\plainpoint{``For the first time''.}{LSQ (Esser et al., 2019) already puts $\delta$ in a gradient.}
+\vspace{0pt}\textbf{What we would question.}
+\begin{shadedblock}[\takeheight]
+\vspace*{\fill}
+{\centering\textbf{``No gradient estimation''.}\par\vspace{12pt}
+The paper claims it (abstract; Table 8).\par\vspace{8pt}
+But $\delta$ is detached, exactly as in STE:\par\vspace{10pt}
+$q=f(x)+\operatorname{stopgrad}(\delta)\ \Rightarrow\ \partial q/\partial f(x)=I$\par}
+\vspace*{\fill}
+\end{shadedblock}
 \end{minipage}
 
-\vspace{14pt}
-\paragraph{What we would try next.} More seeds, a larger toy model, a sweep over $\lambda$.
-
 \vfill
-\noindent\fbox{\parbox{\dimexpr\textwidth-2\fboxsep-2\fboxrule}{\centering\large
-\textbf{Takeaway:} Do not ignore the rounding error. Fit it.\\ A fitted reconstruction cleans the forward pass. It makes the backward pass error-aware.}}
+\begin{shadedblock}
+{\centering
+\textbf{Takeaway}\\[6pt]
+A good approximation can still cause optimization issues.\\[4pt]
+Rounding error looks ignorable, but training needs its information.\\[4pt]
+Fit parameters to the data wherever possible.\par}
+\end{shadedblock}
 
 \end{document}
