@@ -1,0 +1,20 @@
+#!/bin/bash
+#PBS -N vitq
+#PBS -P scai
+#PBS -q scai_q
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=08:00:00
+#PBS -j oe
+
+# BOTH TASKS (eurosat, ecg): FLOAT, AND STE VS. g AT 1, 2 AND 4 BITS, 3 SEEDS EACH: 42 RUNS, 4 AT A TIME ON ONE A100.
+# Usage, from implementation/vit:  qsub sweep_padum.pbs   (or qsub -v TASKS=ecg sweep_padum.pbs for one task)
+source "$HOME/scratch/miniconda3/etc/profile.d/conda.sh"
+conda activate a4
+cd "$PBS_O_WORKDIR" || exit 1
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+mkdir -p logs
+for task in ${TASKS:-eurosat ecg}; do for s in 0 1 2; do
+  echo "$task float 1 $s"
+  for b in 1 2 4; do for m in ste g; do echo "$task $m $b $s"; done; done
+done; done | xargs -P 4 -L 1 bash -c 'python train_vit.py --task $0 --method $1 --bits $2 --seed $3 > logs/$0_$1_k$2_s$3.log 2>&1'
+echo SWEEP FINISHED
