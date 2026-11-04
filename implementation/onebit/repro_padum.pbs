@@ -1,0 +1,25 @@
+#!/bin/bash
+#PBS -N stebl
+#PBS -P scai
+#PBS -q scai_q
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=06:00:00
+#PBS -j oe
+
+# EXACT PAPER SETTING FOR FIG. 1a / FIG. 9 ON PADUM (A100): nanoGPT train_shakespeare_char, A1W1, CHANNEL-WISE,
+# BATCH 64, CONTEXT 256, 5000 STEPS, LR 1e-3, CLIP 1.0, SEED 1337 (THE train_1bit.py DEFAULTS).
+# FOUR RUNS ON ONE GPU (THE MODEL IS SMALL). Usage, from implementation/onebit:  qsub repro_padum.pbs
+source "$HOME/scratch/miniconda3/etc/profile.d/conda.sh"
+conda activate a4
+cd "$PBS_O_WORKDIR" || exit 1
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+if [ -n "$CUDA_VISIBLE_DEVICES" ]; then IFS=, read -r -a GPUS <<< "$CUDA_VISIBLE_DEVICES"; else GPUS=(0 1); fi
+i=0
+for cfg in "ste affine" "ridge affine" "ste linear" "ridge linear"; do
+  set -- $cfg
+  python train_1bit.py --method $1 --scheme $2 --name full_$1_$2 \
+    > logs/full_$1_$2.log 2>&1 &
+  i=$((i + 1))
+done
+wait
+for f in logs/full_*.log; do echo "$f: $(grep step $f | tail -1)"; done

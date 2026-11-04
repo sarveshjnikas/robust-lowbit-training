@@ -7,3 +7,9 @@
 __pycache__/
 *.pyc
 implementation/runs/
+*.fdb_latexmk
+*.fls
+*.toc
+# DATASETS: DOWNLOADED AND REBUILT BY implementation/ecg/data.py AND implementation/vit/prepare_eurosat.py
+implementation/ecg/data/
+implementation/vit/data/
