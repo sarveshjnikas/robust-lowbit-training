@@ -1,7 +1,7 @@
 \documentclass[11pt]{article}
 \usepackage[paperwidth=254mm,paperheight=142.875mm,margin=12mm]{geometry}
 \usepackage{amsmath,amssymb}
-\usepackage{graphicx}
+\usepackage{graphicx}\graphicspath{{../}}
 
 \newcommand{\R}{\mathbb{R}}
 
@@ -166,5 +166,56 @@ the two cluster means: the best possible two levels for the current assignment. 
 \paragraph{One line.} Affine adds a free offset; only a dequantizer that is fitted to the data (ridge) can put that offset to use.
 
 \paragraph We have two kinds of quantization: linear, which is just scaling, and affine, which is scaling plus shifting. Because of the shift, affine has more flexibility. At 1 bit this matters most, since each block gets only two levels. STE wastes that flexibility: it sets $s_f$ and $b_f$ from the smallest and largest weight in the block, so if one weight is an outlier, one of the two levels is spent on it and everything else is squashed onto the other. And STE's gradient cannot see this, so training never fixes it. Ridge instead fits the two levels to the weights, so each level sits at the average of its group, and its gradient knows how good that fit is. That is how, at 1 bit, ridge unlocks the flexibility affine provides.
+
+\section{Short notes on the fix (slides 6--8)}
+
+\paragraph{$N$.} The number of values in one block (the group sharing one $s_g,b_g$). Ours: one row. Paper (SCQ128): $N=128$. The $\frac1N$ turns the squared-error sum into an average.
+
+\paragraph{$\mathrm{Var}(q)$ and $\mathrm{Cov}(x,q)$.} Within one block,
+\[
+\mathrm{Var}(q)=\frac1N\sum_i(q_i-\bar q)^2,\qquad \mathrm{Cov}(x,q)=\frac1N\sum_i(x_i-\bar x)(q_i-\bar q).
+\]
+At 1 bit: $q=(1,1,0,0)$ gives $0.25$ (the maximum); all codes equal gives $0$.
+
+\paragraph{$\lambda$ as ridge regression.} Target $x$, feature $q$, weight $s_g$, intercept $b_g$ (not penalised). $\frac\lambda2 s_g^2$ is the usual L2 penalty:
+\[
+s_g=\frac{\mathrm{Cov}}{\mathrm{Var}+\lambda}=s_{\text{OLS}}\cdot\frac{\mathrm{Var}}{\mathrm{Var}+\lambda}.
+\]
+It shrinks $s_g$ slightly toward 0, stops it blowing up when $\mathrm{Var}(q)\approx0$, and trades a little bias for less variance. It also lowers $\rho=s_g/s_f$. With $\lambda=0.01$ it only matters in near-degenerate blocks.
+\emph{To say:} ``$\lambda$ is a standard ridge penalty on the scale $s_g$; it shrinks it slightly and keeps it from blowing up when the codes have almost no spread.''
+
+\paragraph{Why ``denoising''.} Rounding is treated as noise: $q$ is a noisy copy of $x$. STE plays the noisy copy back as is (levels at min/max). $g$ fits the best line, so each level sits near the mean of the weights it stands for. $\lambda$ sets how hard the fit is smoothed. The paper calls it a ``denoising'' knob (Sec.~3.3, App.~on $\lambda$): as $\lambda\to\infty$, $s_g\to0$ and $g$ collapses to the mean $\bar x$, ignoring the noisy $q$. Without it, a zero-variance block divides by zero and training diverges (their Table~13, $\lambda=0$). $\lambda=10^{-4}$ is fine at $\ge4$ bits; 0.01 is the safe default for 1 bit.
+
+\paragraph{``Half pruned'' (slide 8).} Half the weights are set to exactly 0. The pattern is 2:4: in every 4 consecutive weights, keep the 2 largest in magnitude and zero the other 2. Zeros need no storage and no multiply; hardware supports 2:4. Pruning is treated as more rounding error ($x\to x_S\to q\to g(q)$), with linear quantization so 0 stays 0. Result: Gemma 3 4B, 1-bit weights, 2:4 sparse, 650\,MB, score 0.452, vs.\ 1B full precision, 1400\,MB, 0.449.
+
+\section{The gradient with $g$ (slide 7)}
+
+\paragraph{STE is still used.} Ridge keeps $q=f(x)+\mathrm{stopgrad}(\delta)$, so $\partial q/\partial x=I/s_f$ in both methods. $f$ is the same in both; only the rebuild after $q$ changes ($\hat x\to g$).
+
+\paragraph{Local times upstream.} $\nabla_xL=(\text{local})^\top\,\nabla_gL$. The upstream gradient $\nabla_gL$ comes from the rest of the network.
+STE: local $=\frac1{s_f}\frac{\partial\hat x}{\partial q}=I$, so $\nabla_xL=\nabla_{\hat x}L$, the same for every $\delta$.
+
+\paragraph{Two paths with $g$.} $x$ reaches $g$ through $q$ ($x\to q\to g$) and directly through the fit ($x\to s_g,b_g\to g$):
+\[
+\nabla_xL=\Big(\underbrace{\tfrac1{s_f}\tfrac{\partial g}{\partial q}}_{\text{through }q}+\underbrace{\tfrac{\partial g}{\partial x}}_{\text{through }x}\Big)^{\!\top}\nabla_gL.
+\]
+$s_g,b_g$ also depend on $q$; that dependence sits in path 1 and is where $\delta$ enters.
+
+\paragraph{Path 2: $\partial g/\partial x$ ($q$ fixed).} Let $u=q-\bar q\mathbf 1$, $D=N(\mathrm{Var}_q+\lambda)$. Since $\sum u_i=0$, $\mathrm{Cov}(x,q)=\frac1N\sum x_iu_i$, so
+\[
+\frac{\partial s_g}{\partial x}=\frac uD,\qquad \frac{\partial b_g}{\partial x}=\frac{\mathbf 1}N-\bar q\,\frac uD,
+\]
+\[
+\frac{\partial g}{\partial x}=q\Big(\frac{\partial s_g}{\partial x}\Big)^{\!\top}+\mathbf 1\Big(\frac{\partial b_g}{\partial x}\Big)^{\!\top}=\frac{\mathbf 1\mathbf 1^\top}N+\frac{uu^\top}{D}=P.
+\]
+$P$ is the regression hat matrix: with $q$ fixed, $g=Px$ is linear in $x$. $\frac{\mathbf 1\mathbf 1^\top}N$ shifts the mean; $\frac{uu^\top}D$ tilts the slope. It is built from $q$ only: no $r$, no $\delta$. Hence ``no information about the rounding error''.
+
+\paragraph{Path 1: $\partial g/\partial q$.} With $r=x-g$ and the identity $x-\bar x\mathbf 1=r+s_gu$:
+\[
+\frac{\partial s_g}{\partial q}=\frac{r-s_gu}{D},\qquad \frac1{s_f}\frac{\partial g}{\partial q}=\rho(I-P)+c\,u\,r^\top,\quad \rho=\frac{s_g}{s_f},\ c=\frac1{s_fD}.
+\]
+The residual $r$ carries $\delta$ into the gradient.
+
+\paragraph{Total.} $J_g=P+\rho(I-P)+c\,u\,r^\top$ vs.\ $J_{\text{STE}}=I$. At high bits $\rho\to1$, $r\to0$, so $J_g\to I$ (STE); at 1 bit the error term matters most.
 
 \end{document}

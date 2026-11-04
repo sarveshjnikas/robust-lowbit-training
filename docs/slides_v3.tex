@@ -3,6 +3,7 @@
 \usepackage{amsmath,amssymb,mathtools}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{tikz}
 \usepackage{xcolor}
 \usepackage[hidelinks]{hyperref}
 \usepackage{tikz}
@@ -178,7 +179,7 @@ The gradient reaching $x$ is no longer zero, so training works.
 \begin{itemize}\setlength{\itemsep}{1pt}
 \item The forward pass shifts every entry by $s_f\delta_i$, but the Jacobian is $I$, exactly as with no quantization. $\delta$ does not appear in it.
 \item So earlier layers get no signal about how rounding hurts the loss, and cannot learn to be robust to it.
-\item At 8 bits $s_f\delta$ is tiny and this is harmless. At 1--2 bits it is as large as the values themselves: STE diverges, and gains nothing from affine quantization (next slide).
+\item At 8 bits $s_f\delta$ is tiny and this is harmless. At 1--2 bits it is as large as the values themselves: STE diverges.
 \end{itemize}
 \end{shadedblock}
 }
@@ -208,8 +209,7 @@ The gradient reaching $x$ is no longer zero, so training works.
 
 \slide{The proposed approach: a denoising reconstruction $g$}
 
-{\setlength{\abovedisplayskip}{8pt}\setlength{\belowdisplayskip}{8pt}
-\vspace{10pt}
+{\setlength{\abovedisplayskip}{4pt}\setlength{\belowdisplayskip}{4pt}
 \noindent\textbf{The change.}\quad Keep $f$ and round. Replace $\hat x$ by a fitted reconstruction $g$.
 \begin{shadedblock}
 \begin{minipage}[t]{0.29\linewidth}\centering
@@ -228,18 +228,17 @@ $\displaystyle\min_{s_g,\,b_g}\ \frac{1}{2N}\big\|s_g\,q+b_g\mathbf 1-x\big\|^2+
 \textbf{Solution.}\par\vspace{4pt}
 Ridge regression has a closed form.\par\vspace{14pt}
 $\displaystyle s_g=\frac{\Cov_{xq}}{\Var_q+\hl{\lambda}},\qquad b_g=\bar x-s_g\,\bar q$\par\vspace{8pt}
-{\itshape \hl{\lambda} is the denoising knob.\par}
+{\itshape \hl{\lambda} is the regularisation strength.\par}
 \end{minipage}
 \end{shadedblock}
 
-\vspace{26pt}
+\vspace{6pt}
 \noindent\textbf{Training with $g$.}\quad One forward and one backward pass.
 \begin{shadedblock}
 \paragraph{Forward pass.} The next layer gets $g(q)$, not $\hat x$.
 \[
 x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xrightarrow{\ g\ }\ g(q)\ \longrightarrow\ \text{rest of network}\ \longrightarrow\ L
 \]
-\vspace{8pt}
 
 \paragraph{Backward pass.} Round stays straight through, as in STE. But $g$ now depends on $\delta$.
 \[
@@ -250,32 +249,49 @@ x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xright
 
 \slide{Why it works: the backward pass sees $\delta$}
 
-{\setlength{\abovedisplayskip}{8pt}\setlength{\belowdisplayskip}{8pt}
+{\setlength{\abovedisplayskip}{2pt}\setlength{\belowdisplayskip}{2pt}
 \paragraph{The idea.} Both methods replace round's slope by a constant surrogate, so $\partial q/\partial x=I/s_f$. Only the step after round differs.
 
-\vspace{6pt}
 \begin{shadedblock}
 \paragraph{STE.} $\hat x=s_f\,q+b_f\mathbf 1$ has the same slope for every $\delta$.
 \[
-\frac{\partial \hat x}{\partial q}=s_f\,I\quad\Longrightarrow\quad\nabla_xL=\nabla_{\hat x}L
+\nabla_xL=\underbrace{\Big(\frac{1}{s_f}\,\frac{\partial \hat x}{\partial q}\Big)^{\!\top}}_{\text{local}\;=\;I}\ \underbrace{\vphantom{\Big(}\nabla_{\hat x}L}_{\text{upstream}}=\nabla_{\hat x}L
 \]
 \end{shadedblock}
 
-\vspace{10pt}
 \begin{shadedblock}
-\paragraph{With $g$.} The gradient reaches $x$ by two paths.
-\[
-\nabla_xL=\underbrace{\frac{1}{s_f}\Big(\frac{\partial g}{\partial q}\Big)^{\!\top}\nabla_gL}_{\text{through $q$}}
-\;+\;\underbrace{\vphantom{\frac{1}{s_f}}\Big(\frac{\partial g}{\partial x}\Big)^{\!\top}\nabla_gL}_{\text{through $x$}}
-\]
-\vspace{4pt}
-\begin{itemize}\setlength{\itemsep}{8pt}
-\item \textbf{Through $q$.} Changes with the rounding error. It carries $\delta$ into the gradient:
+\paragraph{With $g$.} The gradient reaches $x$ by two paths. Local gradient times upstream gradient:\par\vspace{4pt}
+\noindent\begin{minipage}{0.60\linewidth}\centering
+$\displaystyle
+\nabla_xL=\underbrace{\Big(\underbrace{\frac{1}{s_f}\,\frac{\partial g}{\partial q}}_{\text{through $q$}}\;+\;\underbrace{\vphantom{\frac{1}{s_f}}\frac{\partial g}{\partial x}}_{\text{through $x$}}\Big)^{\!\top}}_{\text{local}}\ \underbrace{\vphantom{\Big(}\nabla_gL}_{\text{upstream}}
+$
+\end{minipage}\hfill
+\begin{minipage}{0.38\linewidth}\centering
+\begin{tikzpicture}[>=stealth,every node/.style={font=\small}]
+\node (x) at (0,0) {$x$};
+\node (q) at (2.2,0.7) {$q$};
+\node (s) at (2.2,-0.7) {$s_g,\,b_g$};
+\node (g) at (4.4,0) {$g$};
+\draw[->,thick] (x) -- node[above left,font=\scriptsize]{round} (q);
+\draw[->,thick] (q) -- node[above right,font=\scriptsize]{path 1: through $q$} (g);
+\draw[->,thick,dashed] (x) -- node[below left,font=\scriptsize]{fit} (s);
+\draw[->,thick,dashed] (s) -- node[below right,font=\scriptsize]{path 2: through $x$} (g);
+\end{tikzpicture}
+\end{minipage}
+\vspace{4pt}\noindent
+\begin{minipage}[t]{0.52\linewidth}
+\textbf{Through $q$.} Changes with the rounding error. It carries $\delta$ into the gradient:
 \[
 \frac{\partial g}{\partial q}=\underbrace{\vphantom{\Big(\frac{\partial s_g}{\partial q}\Big)}s_g\,I}_{\mathclap{\substack{\text{like STE's }s_fI\text{,}\\\text{but }s_g\text{ carries }\delta}}}\quad+\;\;\underbrace{q\Big(\frac{\partial s_g}{\partial q}\Big)^{\!\top}+\mathbf 1\Big(\frac{\partial b_g}{\partial q}\Big)^{\!\top}}_{\substack{\text{new terms,}\\\text{carry }\delta\text{ through }x-g(q)}}
 \]
-\item \textbf{Through $x$.} For the current $q$, $g$ is linear in $x$. \textit{No information about the rounding error.}
-\end{itemize}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}
+\textbf{Through $x$.} For the current $q$, $g$ is linear in $x$:
+\[
+\frac{\partial g}{\partial x}=\frac{\mathbf 1\mathbf 1^{\top}}{N}+\frac{u\,u^{\top}}{N(\Var_q+\lambda)},\quad u=q-\bar q\mathbf 1
+\]
+Built from $q$ only. \textit{No information about the rounding error.}
+\end{minipage}
 \end{shadedblock}
 }
 
@@ -313,11 +329,7 @@ bits for weights and activations & STE & with $g$ & gain \\
 \end{minipage}\hfill
 \begin{minipage}[t]{0.49\textwidth}
 \begin{shadedblock}[\resheight]
-\textbf{Other domains.}\par\vspace{3pt}At 4 bits, images and translation match full precision.\par\vspace{4pt}
-\begin{itemize}\setlength{\itemsep}{6pt}
-\item Images (ResNet-50): 76.45\% vs.\ 76.41\%.
-\item Translation (English--German): 29.71 vs.\ 29.49 BLEU.
-\end{itemize}
+\textbf{Other tasks.}\par\vspace{6pt}Method is also useful for image and language processing models.
 \end{shadedblock}
 \end{minipage}
 

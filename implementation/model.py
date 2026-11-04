@@ -4,8 +4,13 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import config
 from config import block_size, n_embd, n_head, n_layer, dropout, METHOD, BITS, LAMBDA
 from quant import QLinear
+
+def Norm(n):
+    # DEBUG SWITCH: --no_ln REMOVES LayerNorm TO TEST WHETHER IT HIDES STE'S BLOW-UP
+    return nn.Identity() if getattr(config, "NO_LN", False) else nn.LayerNorm(n)
 
 def Lin(fan_in, fan_out, bias=True):
     # FLOAT RUN: PLAIN LINEAR. OTHERWISE: QUANTIZED LINEAR WITH THE CONFIGURED METHOD AND BIT-WIDTH
@@ -54,7 +59,7 @@ class Block(nn.Module):
         super().__init__()
         self.sa = MultiHeadAttention(n_head, n_embd // n_head)
         self.ffwd = FeedForward(n_embd)
-        self.ln1, self.ln2 = nn.LayerNorm(n_embd), nn.LayerNorm(n_embd)
+        self.ln1, self.ln2 = Norm(n_embd), Norm(n_embd)
 
     def forward(self, x):
         x = x + self.sa(self.ln1(x))
@@ -67,7 +72,7 @@ class GPT(nn.Module):
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(*[Block(n_embd, n_head) for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embd)
+        self.ln_f = Norm(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)  # FULL PRECISION
         self.apply(self._init_weights)
 

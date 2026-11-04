@@ -23,8 +23,13 @@ p.add_argument("--block", type=int, default=256)
 p.add_argument("--decay", type=int, default=5000)  # COSINE LENGTH; KEEP 5000 TO MATCH THE PAPER'S SCHEDULE
 p.add_argument("--eval_iters", type=int, default=40)
 p.add_argument("--name", default=None)
+# DEBUG: WHY DOES STE NOT EXPLODE? EACH FLAG CHANGES ONE IMPLEMENTATION DETAIL
+p.add_argument("--qhead", action="store_true")       # ALSO QUANTIZE THE (TIED) OUTPUT HEAD
+p.add_argument("--per_tensor", action="store_true")  # ONE s_f, b_f PER WHOLE TENSOR INSTEAD OF PER ROW
+p.add_argument("--detach_scale", action="store_true")  # NO GRADIENT THROUGH s_f, b_f (MIN / MAX)
 a = p.parse_args()
 METHOD, BITS, LAM, SCHEME = a.method, a.bits, 1e-2, a.scheme
+QHEAD, PER_TENSOR, DETACH_SCALE = a.qhead, a.per_tensor, a.detach_scale
 assert SCHEME == "affine" or BITS == 1, "linear scheme is implemented for 1 bit only"
 NAME = a.name or (a.method if a.method == "float" else f"{a.method}_k{a.bits}")
 
@@ -56,6 +61,8 @@ def get_batch(name):
 def quantize(x, k, eps=1e-8):
     # q = f(x) + stopgrad(delta), AFFINE f ONTO {0, ..., 2^k - 1}, ONE BLOCK PER ROW
     lo, hi = x.amin(-1, keepdim=True), x.amax(-1, keepdim=True)
+    if DETACH_SCALE:
+        lo, hi = lo.detach(), hi.detach()
     s_f = (hi - lo + eps) / (2**k - 1)
     f_x = (x - lo) / s_f
     return f_x + (torch.round(f_x) - f_x).detach(), s_f, lo
@@ -63,6 +70,8 @@ def quantize(x, k, eps=1e-8):
 def quantize_sign(x):
     # 1-BIT LINEAR: f(x) = x / s_f WITH s_f = max|x|, ROUNDED TO THE NEAREST OF {-1, +1}, i.e. ITS SIGN
     s_f = x.abs().amax(-1, keepdim=True) + 1e-8
+    if DETACH_SCALE:
+        s_f = s_f.detach()
     f_x = x / s_f
     q = torch.where(f_x >= 0, 1.0, -1.0).to(x.dtype)
     return f_x + (q - f_x).detach(), s_f
@@ -79,16 +88,22 @@ def g(q, x, lam=LAM):
     s_g = m(xc * qc) / (m(qc * qc) + lam)
     return s_g * qc + m(x)
 
-class QLinear(nn.Linear):
-    def deq(self, x):
-        if SCHEME == "linear":
-            q, s_f = quantize_sign(x)
-            return s_f * q if METHOD == "ste" else g_linear(q, x)
-        q, s_f, lo = quantize(x, BITS)
-        return s_f * q + lo if METHOD == "ste" else g(q, x)
+def _deq(x):
+    # QUANTIZE, THEN DEQUANTIZE WITH STE (x_hat) OR RIDGE (g). ONE BLOCK PER ROW
+    if SCHEME == "linear":
+        q, s_f = quantize_sign(x)
+        return s_f * q if METHOD == "ste" else g_linear(q, x)
+    q, s_f, lo = quantize(x, BITS)
+    return s_f * q + lo if METHOD == "ste" else g(q, x)
 
+def deq(x):
+    if PER_TENSOR:  # DEBUG: ONE BLOCK = THE WHOLE TENSOR
+        return _deq(x.reshape(1, -1)).reshape(x.shape)
+    return _deq(x)
+
+class QLinear(nn.Linear):
     def forward(self, x):
-        return F.linear(self.deq(x), self.deq(self.weight), self.bias)
+        return F.linear(deq(x), deq(self.weight), self.bias)
 
 def Lin(fan_in, fan_out):
     return nn.Linear(fan_in, fan_out, bias=False) if METHOD == "float" else QLinear(fan_in, fan_out, bias=False)
@@ -145,7 +160,8 @@ class GPT(nn.Module):
         x = self.drop(self.wte(idx) + self.wpe(torch.arange(idx.shape[1], device=idx.device)))
         for blk in self.h:
             x = blk(x)
-        logits = self.lm_head(self.ln_f(x))
+        h = self.ln_f(x)
+        logits = F.linear(deq(h), deq(self.lm_head.weight)) if QHEAD and METHOD != "float" else self.lm_head(h)
         return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
 
 torch.manual_seed(a.seed)

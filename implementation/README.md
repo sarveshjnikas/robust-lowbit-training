@@ -62,3 +62,22 @@ python train.py --method ridge --bits 1
 python plots.py
 python grad_check.py
 ```
+
+## Debugging: why our STE does not blow up
+
+The paper's STE loss explodes at 1 bit (Fig. 1a); ours did not. We tested one change at a time on the toy model (A1W1, same seed). "Residual" is the RMS of the residual stream after the last block. Logs: `runs/debug/`.
+
+| step | change | STE val | ridge val | STE residual (start → end) | ridge residual |
+|---|---|---|---|---|---|
+| 0 | none, 1000 steps | 2.278 | 2.211 | 4.9 → 53 | 0.2 |
+| 1 | no LayerNorm, 500 steps | 2.513 | 2.551 | 17.8 → 3.3 | 2.1 |
+| 2a | lr 3e-3 | 2.563 | 2.182 | 4.9 → 494 | 0.5 |
+| 2b | lr 1e-2 | 2.914 | 2.259 | 4.9 → 7295 | 11 |
+| 3 | 5000 steps | 2.087 | 2.002 | 4.9 → 95 | 0.4 |
+
+1. STE does blow up, inside the network: its residual stream is ~250x larger than with $g$ and keeps growing. The loss does not show it.
+2. LayerNorm is what allows this. Without it the blow-up disappears and STE and $g$ train about equally (badly). LayerNorm makes each layer scale-invariant, so the oversized 1-bit outputs cost nothing in the loss and nothing pulls them back.
+3. A higher learning rate makes it worse: at lr 1e-2 the residual reaches ~7300, STE's loss stops improving after step ~350 and rises (2.83 → 2.91), while $g$ keeps improving. This is the start of the divergence in the paper.
+4. Longer training alone does not break it: at 5000 steps the residual is still growing (95) but the loss is fine.
+
+Run with `python train.py --method ste --bits 1 [--no_ln] [--lr 3e-3] --iters N --name debug/<name>`.
