@@ -230,8 +230,8 @@ $\displaystyle\min_{s_g,\,b_g}\ \frac{1}{2N}\big\|s_g\,q+b_g\mathbf 1-x\big\|^2+
 \begin{minipage}[t]{0.29\linewidth}\centering
 \textbf{Solution.}\par\vspace{4pt}
 Ridge regression has a closed form.\par\vspace{14pt}
-$\displaystyle s_g=\frac{\Cov_{xq}}{\Var_q+\hl{\lambda}},\qquad b_g=\bar x-s_g\,\bar q$\par\vspace{8pt}
-{\itshape \hl{\lambda} is the regularisation strength.\par}
+$\displaystyle s_g=\frac{\Cov_{xq}}{\Var_q+\lambda},\qquad b_g=\bar x-s_g\,\bar q$\par\vspace{8pt}
+{\itshape $\lambda$ is the regularization parameter.\par}
 \end{minipage}
 \end{shadedblock}
 
@@ -263,7 +263,8 @@ x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xright
 \end{shadedblock}
 
 \begin{shadedblock}
-\paragraph{With $g$.} The gradient reaches $x$ by two paths. Local gradient times upstream gradient:\par\vspace{4pt}
+\setlength{\abovedisplayskip}{3pt}\setlength{\belowdisplayskip}{3pt}
+\paragraph{With $g$.} The gradient reaches $x$ by two paths. Local gradient times upstream gradient:\par\vspace{6pt}
 \noindent\begin{minipage}{0.60\linewidth}\centering
 $\displaystyle
 \nabla_xL=\underbrace{\Big(\underbrace{\frac{1}{s_f}\,\frac{\partial g}{\partial q}}_{\text{through $q$}}\;+\;\underbrace{\vphantom{\frac{1}{s_f}}\frac{\partial g}{\partial x}}_{\text{through $x$}}\Big)^{\!\top}}_{\text{local}}\ \underbrace{\vphantom{\Big(}\nabla_gL}_{\text{upstream}}
@@ -280,8 +281,8 @@ $
 \draw[->,thick,dashed] (x) -- node[below left,font=\scriptsize]{fit} (s);
 \draw[->,thick,dashed] (s) -- node[below right,font=\scriptsize]{path 2: through $x$} (g);
 \end{tikzpicture}
-\end{minipage}
-\vspace{4pt}\noindent
+\end{minipage}\par\vspace{10pt}
+\noindent
 \begin{minipage}[t]{0.52\linewidth}
 \textbf{Through $q$.} Changes with the rounding error. It carries $\delta$ into the gradient:
 \[
@@ -289,11 +290,8 @@ $
 \]
 \end{minipage}\hfill
 \begin{minipage}[t]{0.44\linewidth}
-\textbf{Through $x$.} For the current $q$, $g$ is linear in $x$:
-\[
-\frac{\partial g}{\partial x}=\frac{\mathbf 1\mathbf 1^{\top}}{N}+\frac{u\,u^{\top}}{N(\Var_q+\lambda)},\quad u=q-\bar q\mathbf 1
-\]
-Built from $q$ only. \textit{No information about the rounding error.}
+\textbf{Through $x$.} For the current $q$, $g$ is linear in $x$.\par\vspace{8pt}
+{\centering\itshape No information about the rounding error.\par}
 \end{minipage}
 \end{shadedblock}
 }
@@ -332,7 +330,11 @@ bits for weights and activations & STE & with $g$ & gain \\
 \end{minipage}\hfill
 \begin{minipage}[t]{0.49\textwidth}
 \begin{shadedblock}[\resheight]
-\textbf{Other tasks.}\par\vspace{6pt}Method is also useful for image and language processing models.
+\textbf{Other domains.}\par\vspace{3pt}At 4 bits, images and translation match full precision.\par\vspace{4pt}
+\begin{itemize}\setlength{\itemsep}{6pt}
+\item Images (ResNet-50): 76.45\% at 4 bits, 76.41\% full precision.
+\item Translation: 29.71 BLEU at 4 bits, 29.49 full precision.
+\end{itemize}
 \end{shadedblock}
 \end{minipage}
 
@@ -358,19 +360,35 @@ bits for weights and activations & STE & with $g$ & gain \\
 \slide{Our implementation 2: solving a real-world task}
 \noindent\textbf{Task.}\quad Label each satellite image as one of 10 land types, such as forest or river.\par\vspace{2pt}
 \noindent\textbf{Model.}\quad A small vision transformer, quantized to different precisions.
+\newcommand{\eurosatheight}{66mm}
 
-\begin{shadedblock}
-\centering
-\includegraphics[width=0.92\linewidth]{implementation/vit/plots/eurosat_results.png}
+\noindent
+\begin{minipage}[t]{0.63\textwidth}
+\begin{shadedblock}[\eurosatheight]
+\vspace*{\fill}\centering
+\includegraphics[width=\linewidth]{implementation/vit/plots/eurosat_results.png}
+\vspace*{\fill}
 \end{shadedblock}
-
-\begin{shadedblock}
-\begin{itemize}\setlength{\itemsep}{6pt}
-\item \textbf{Need for quantization.} Satellite chips have little energy and memory; fewer bits save both.
-\item \textbf{The gain grows as bits drop.} $+0.3$, $+1.3$, $+26$ points at 4, 2, 1 bits.
-\item \textbf{At 1 bit.} 91\% with $g$, 65\% with STE; full precision 95\%.
-\end{itemize}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.355\textwidth}
+\begin{shadedblock}[\eurosatheight]
+\vspace*{\fill}\centering
+\textbf{Test accuracy (\%).}\par\vspace{8pt}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lccc}
+\toprule
+ & 4 bits & 2 bits & 1 bit \\
+\midrule
+STE & 95.4 & 93.3 & 65.2 \\
+with $g$ & 95.6 & 94.5 & \textbf{91.2} \\
+\textbf{gain} & $\mathbf{+0.3}$ & $\mathbf{+1.3}$ & $\mathbf{+25.9}$ \\
+\bottomrule
+\end{tabular}\par\vspace{12pt}
+\textit{Full precision: 95.4\%.}\par\vspace{6pt}
+\textit{The gain over STE grows as bits drop.}
+\vspace*{\fill}
 \end{shadedblock}
+\end{minipage}
 
 \vfill
 \noindent{\footnotesize\textit{Data:} P.~Helber et al., ``EuroSAT: a novel dataset and deep learning benchmark for land use and land cover classification,'' IEEE JSTARS, 2019.}
