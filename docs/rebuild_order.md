@@ -24,13 +24,15 @@ The chain rule depends on the function, not on the order of evaluation, so every
 
 $$\frac{\partial y}{\partial q_{w,j}} = s_w \hat x_j = s_x s_w q_{x,j} + b_x s_w$$
 
-The left form comes from order A and the right form from order B. Rounding uses the same STE surrogate in both, $\partial q / \partial x = I / s_f$. For $g$, the derivatives through $s_g$ and $b_g$ are also unchanged. Neither order is needed for correctness.
+The left form comes from order A and the right form from order B. Rounding uses the same STE surrogate in both, $\partial q / \partial x = I / s_f$. For $g$, the derivatives through $s_g$ and $b_g$ are also unchanged. Neither order is needed for correctness. (Checked numerically: on a 64-value block at 2 bits, A and B agree to about $10^{-5}$ in output and gradients.)
 
-## Claim 3: order B gives no benefit in training
+## Claim 3: why this paper (and we) use order A in training
 
-1. **Gradients are real-valued.** Per layer, a training step does three matmuls: the forward pass $Y = \hat X \hat W^\top$, the input gradient $\nabla_{\hat X} L = \nabla_Y L \, \hat W$, and the weight gradient $\nabla_{\hat W} L = (\nabla_Y L)^\top \hat X$. Since $\nabla_Y L$ is real-valued, both backward matmuls are float whichever order the forward pass uses. An integer forward pass could speed up at most about a third of the work.
-2. **Nothing can be precomputed.** The float weights change every step, so $q_W$, the scale and the shift are recomputed every step. For $g$, $s_g$ depends on $x$. Order B's advantage, stored integers and precomputed correction terms, does not exist during training.
-3. **Tooling.** Autograd only differentiates float tensors, and integer matmul kernels do not support backprop. Order B would need custom kernels and a hand-written backward pass to compute the same numbers.
+Order B can speed up training in principle: GPUs have fast integer units (an A100 runs int8 matmuls about twice as fast as fp16), and there is published work that runs the training forward pass in int8, e.g. SwitchBack (Wortsman et al., 2023). Order A is used here for practical reasons:
+
+1. **QAT here is a simulation.** The goal is a model that works at 1 to 4 bits and a measurement of its accuracy, not faster training. Order A ("fake quantization") is a drop-in float layer that autograd handles directly. Autograd only differentiates float tensors (PyTorch: "Only Tensors of floating point and complex dtype can require gradients"), so order B needs custom kernels and a hand-written backward pass.
+2. **No kernels for the low-bit cases.** There are no standard 1-, 2- or 4-bit training kernels, and none for $g$, whose scale $s_g$ depends on $x$. Order A works at any bit width without custom code.
+3. **The backward pass is still real-valued.** Per layer, a training step does three matmuls: the forward pass $Y = \hat X \hat W^\top$, the input gradient $\nabla_{\hat X} L = \nabla_Y L \, \hat W$, and the weight gradient $\nabla_{\hat W} L = (\nabla_Y L)^\top \hat X$. Since $\nabla_Y L$ is real-valued, an integer forward pass speeds up at most about a third of the work. The weights also change every step, so they are re-quantized every step and nothing is precomputed.
 
 ## Claim 4: order B is right at inference
 
@@ -38,4 +40,4 @@ The weights are fixed. $q_W$, $s_w$, $b_w$ and $\sum_i q_{w,i}$ are computed onc
 
 ## Summary
 
-Orders A and B compute the same function, so the outputs and gradients are equal. Training uses A because B saves nothing there and complicates the backward pass. Inference uses B because the integer matmul is almost all of the work.
+Orders A and B compute the same function, so the outputs and gradients are equal. Training uses A because it simulates quantization simply with standard float tools; integer training is possible but needs special kernels. Inference uses B because the integer matmul is almost all of the work.
