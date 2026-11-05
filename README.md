@@ -1,4 +1,4 @@
-# robust-lowbit-training
+# Training Neural Networks at 1 Bit: Beyond the Straight-Through Estimator
 
 Study and reimplementation of **Robust Training of Neural Networks at Arbitrary Precision and Sparsity** (Ye et al., Google DeepMind, ICLR 2026) — [OpenReview](https://openreview.net/forum?id=e6nZrzSccj).
 
