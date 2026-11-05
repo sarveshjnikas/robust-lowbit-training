@@ -13,3 +13,6 @@ implementation/runs/
 # DATASETS: DOWNLOADED AND REBUILT BY implementation/ecg/data.py AND implementation/vit/prepare_eurosat.py
 implementation/ecg/data/
 implementation/vit/data/
+
+# OLD DECKS AND NOTES, KEPT LOCALLY ONLY
+archive/
