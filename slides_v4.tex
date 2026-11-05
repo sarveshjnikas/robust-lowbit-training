@@ -13,7 +13,7 @@
 \usetikzlibrary{positioning,arrows.meta,fit,calc}
 \tikzset{
   fl/.style={draw=gray!70,fill=white,rounded corners=2pt,minimum height=12mm,minimum width=15mm,align=center},
-  ql/.style={fl,draw=blue!60!black,fill=blue!12,very thick},
+  ql/.style={fl},
   arr/.style={-{Stealth[length=2mm]},thick},
 }
 
@@ -47,38 +47,25 @@
 \end{center}
 \vspace*{\fill}
 
-\slide{Why quantization, and the forward pass during training}
+\slide{Why quantization, and how it works}
 
-\newcommand{\introheight}{30mm}
-\noindent
-\begin{minipage}[t]{0.40\textwidth}
-\begin{shadedblock}[\introheight]
-\textbf{Why quantization.}
+\begin{shadedblock}
+\paragraph{Why quantization.}
 \begin{itemize}\setlength{\itemsep}{4pt}
 \item Billions of weights, each 32 or 16 bits.
 \item Too big for a phone, slow, costly in energy.
 \item Quantization: 4, 2 or 1 bit per weight.
 \end{itemize}
 \end{shadedblock}
-\end{minipage}\hfill
-\begin{minipage}[t]{0.58\textwidth}
-\begin{shadedblock}[\introheight]
-\textbf{Training with quantization.}
-\begin{itemize}\setlength{\itemsep}{4pt}
-\item Training keeps the float weights $x$.
-\item Forward pass uses quantized $\hat x$; backward pass updates the float $x$.
-\item Inference keeps only $\hat x$ (stored as $q$ plus $s_f$, $b_f$ per block).
-\end{itemize}
-\end{shadedblock}
-\end{minipage}
 
+\vspace{10pt}
 \begin{shadedblock}
-\paragraph{The forward pass during training.}
+\paragraph{How quantization works.}
 \[
 x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xrightarrow{\ s_f q+b_f\mathbf 1\ }\ \hat x\ \longrightarrow\ \text{rest of network}\ \longrightarrow\ L
 \]
 \begin{itemize}
-\item $x\in\R^N$: float block, kept and updated during training.
+\item $x\in\R^N$: a block of float weights or activations.
 \item $f(x)=\dfrac{x-b_f\mathbf 1}{s_f}$: rescales $x$ onto the $k$-bit integer grid $\{0,\dots,2^k-1\}$, with $s_f=\dfrac{x_{\max}-x_{\min}}{2^k-1}$, $b_f=x_{\min}$.
 \item $q=\operatorname{round}\big(f(x)\big)=f(x)+\delta$: the integers, with rounding error $|\delta_i|\le\frac12$.
 \item $\hat x=s_f\,q+b_f\mathbf 1=x+s_f\,\delta$: $x$ as seen after quantization; this is what the next layer uses.
@@ -94,35 +81,34 @@ x\ \xrightarrow{\ f\ }\ f(x)\ \xrightarrow{\ \operatorname{round}\ }\ q\ \xright
 \draw[arr] (x) -- (qx); \draw[arr] (w) -- (qw);}
 
 \vspace{6pt}
-\noindent\textbf{Training time.}\quad Rebuild in float, so gradients can flow.
+\noindent\textbf{Training time.}
 \begin{shadedblock}
-\centering
+\noindent
 \begin{tikzpicture}[lb/.style={fl,text width=36mm},rb/.style={fl,text width=30mm}]
 \qrows{one block per row}{scale, round\\$q_W$}
-\node[rb] (rx) at (84mm,0) {rebuild\\$\hat x$ \ or \ $g(q_X)$};
-\node[rb] (rw) at (84mm,-17mm) {rebuild\\$\hat W$ \ or \ $g(q_W)$};
+\node[rb] (rx) at (84mm,0) {rebuild\\$\hat x$};
+\node[rb] (rw) at (84mm,-17mm) {rebuild\\$\hat W$};
 \node[fl] (mm) at (122mm,-8.5mm) {float\\matmul};
 \node (y) at (140mm,-8.5mm) {$y$};
 \foreach \a/\b in {qx/rx,qw/rw,mm/y} \draw[arr] (\a) -- (\b);
 \draw[arr] (rx.east) -- (mm.north west);
 \draw[arr] (rw.east) -- (mm.south west);
-\node[anchor=west,align=left] at (150mm,-8.5mm) {\textbf{STE:} $\hat x=s_f\,q+b_f\mathbf 1$.\\[4pt]\textbf{With $g$:} fitted $s_g,\,b_g$.\\[4pt]\textbf{Backward:} updates float $W$.};
 \end{tikzpicture}
 \end{shadedblock}
 
 \vspace{16pt}
-\noindent\textbf{Inference time.}\quad Multiply integers only; apply scales afterwards.
+\noindent\textbf{Inference time.}
 \begin{shadedblock}
 \centering
 \begin{tikzpicture}[lb/.style={fl,text width=36mm},rb/.style={fl,text width=30mm}]
-\qrows{float copy dropped}{stored $q_W$\\[-1pt]\footnotesize plus $s_g,b_g$ per row}
+\qrows{float copy dropped}{stored $q_W$\\[-1pt]\footnotesize plus scale, shift per row}
 \node[ql,text width=30mm] (mm) at (84mm,-8.5mm) {integer matmul\\$q_X\,q_W$};
 \node[fl] (rs) at (122mm,-8.5mm) {rescale,\\shift};
 \node (y) at (140mm,-8.5mm) {$y$};
 \draw[arr] (qx.east) -- (mm.north west);
 \draw[arr] (qw.east) -- (mm.south west);
 \foreach \a/\b in {mm/rs,rs/y} \draw[arr] (\a) -- (\b);
-\node[anchor=west,align=left] at (150mm,-8.5mm) {\textbf{Weights:} $s_g,b_g$ precomputed.\\[4pt]\textbf{Activations:} $s_g,b_g$ per token.};
+\node[anchor=west,align=left] at (150mm,-8.5mm) {\textbf{Weights:} scale, shift precomputed.\\[4pt]\textbf{Activations:} scale, shift per token.};
 \end{tikzpicture}
 \end{shadedblock}
 
@@ -182,7 +168,7 @@ The gradient reaching $x$ is no longer zero, so training works.
 \begin{itemize}\setlength{\itemsep}{1pt}
 \item The forward pass shifts every entry by $s_f\delta_i$, but the Jacobian is $I$, exactly as with no quantization. $\delta$ does not appear in it.
 \item So earlier layers get no signal about how rounding hurts the loss, and cannot learn to be robust to it.
-\item At 8 bits $s_f\delta$ is tiny and this is harmless. At 1--2 bits it is as large as the values themselves: STE diverges.
+\item At 8 bits $s_f\delta$ is tiny and this is harmless. At 1--2 bits it is as large as the values themselves: STE performs poorly and can diverge.
 \end{itemize}
 \end{shadedblock}
 }
@@ -359,7 +345,7 @@ bits for weights and activations & STE & with $g$ & gain \\
 
 \slide{Our implementation 2: solving a real-world task}
 \noindent\textbf{Task.}\quad Label each satellite image as one of 10 land types, such as forest or river.\par\vspace{2pt}
-\noindent\textbf{Model.}\quad A small vision transformer (2.7M parameters, 6 layers), quantized to different precisions.
+\noindent\textbf{Model.}\quad A small vision transformer (2.7M parameters, 6 layers, 10.8 MB at 32 bits), quantized to different precisions.
 \newcommand{\eurosatheight}{66mm}
 
 \noindent
@@ -382,9 +368,11 @@ bits for weights and activations & STE & with $g$ & gain \\
 STE & 95.4 & 93.3 & 65.2 \\
 with $g$ & 95.6 & 94.5 & \textbf{91.2} \\
 \textbf{gain} & $\mathbf{+0.2}$ & $\mathbf{+1.2}$ & $\mathbf{+26.0}$ \\
+\midrule
+size (MB) & 1.64 & 0.97 & 0.64 \\
 \bottomrule
 \end{tabular}\par\vspace{12pt}
-\textit{Full precision: 95.4\%.}\par\vspace{6pt}
+\textit{Full precision: 95.4\%, 10.8 MB.}\par\vspace{6pt}
 \textit{The gain over STE grows as bits drop.}
 \vspace*{\fill}
 \end{shadedblock}
