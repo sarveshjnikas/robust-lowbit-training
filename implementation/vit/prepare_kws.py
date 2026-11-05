@@ -25,7 +25,8 @@ if a.download:
     if not os.path.exists(TAR):
         print("downloading", URL, flush=True)
         urllib.request.urlretrieve(URL, TAR)
-    raise SystemExit(f"downloaded {os.path.getsize(TAR) / 1e9:.2f} GB to {TAR}")
+    print(f"downloaded {os.path.getsize(TAR) / 1e9:.2f} GB to {TAR}")
+    raise SystemExit(0)
 
 if not os.path.isdir(ROOT):
     print("extracting", TAR, flush=True)
