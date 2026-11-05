@@ -1,0 +1,22 @@
+#!/bin/bash
+#PBS -N kwspilot
+#PBS -P scai
+#PBS -q scai_q
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=08:00:00
+#PBS -j oe
+
+# PILOT FOR KEYWORD SPOTTING (SPEECH COMMANDS V2, KWT-1 SIZE): FLOAT, AND STE VS. g AT 1 AND 2 BITS, SEED 0 ONLY.
+# 5 RUNS, 4 AT A TIME ON ONE GPU. DECIDES WHETHER THE TASK GETS THE FULL 5-SEED SWEEP.
+# Usage, from implementation/vit:
+#   python prepare_kws.py --download     (ON THE LOGIN NODE: COMPUTE NODES MAY HAVE NO INTERNET)
+#   qsub pilot_kws_padum.pbs
+source "$HOME/scratch/miniconda3/etc/profile.d/conda.sh"
+conda activate a4
+cd "$PBS_O_WORKDIR" || exit 1
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+mkdir -p logs
+[ -f data/kws.npz ] || python prepare_kws.py > logs/prepare_kws.log 2>&1 || { echo "prepare_kws.py FAILED"; exit 1; }
+{ echo "float 1"; for b in 1 2; do for m in ste g; do echo "$m $b"; done; done; } \
+  | xargs -P 4 -L 1 bash -c 'python train_vit.py --task kws --method $0 --bits $1 --seed 0 > logs/kws_$0_k$1_s0.log 2>&1'
+echo PILOT FINISHED

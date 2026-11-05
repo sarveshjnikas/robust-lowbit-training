@@ -1,6 +1,8 @@
 # SMALL VISION-STYLE TRANSFORMER ON TWO REAL-WORLD TASKS, k-BIT WEIGHTS AND ACTIVATIONS, STE VS. RIDGE g.
 #   eurosat: SENTINEL-2 LAND-USE IMAGES (10 CLASSES, 64x64 RGB), 8x8 PATCHES -> 64 TOKENS. FOR ON-BOARD SATELLITE INFERENCE.
 #   ecg:     MIT-BIH HEARTBEATS (INTER-PATIENT, 4 AAMI CLASSES), 256 SAMPLES IN 16-SAMPLE PATCHES -> 16 TOKENS, PLUS RR FEATURES.
+#   kws:     GOOGLE SPEECH COMMANDS V2 (35 KEYWORDS), 98 FRAMES OF 40 LOG-MELS, ONE TOKEN PER FRAME. KWT-1 SIZE
+#            (BERG ET AL., 2021: 12 LAYERS, 1 HEAD, WIDTH 64). FOR ALWAYS-ON KEYWORD SPOTTING ON SMALL DEVICES.
 # QUANTIZATION FOLLOWS THE PAPER'S TRANSFORMER RECIPE (SAME AS onebit/train_1bit.py): EVERY LINEAR LAYER INSIDE THE BLOCKS
 # (QKV, ATTENTION OUTPUT, MLP UP, MLP DOWN) HAS k-BIT AFFINE WEIGHTS (ONE BLOCK PER OUTPUT ROW) AND k-BIT INPUTS (ONE BLOCK
 # PER TOKEN). PATCH EMBEDDING AND CLASSIFIER HEAD STAY FULL PRECISION. ALL METHODS SHARE ONE SET OF HYPERPARAMETERS.
@@ -12,7 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 p = argparse.ArgumentParser()
-p.add_argument("--task", default="eurosat", choices=["eurosat", "ecg"])
+p.add_argument("--task", default="eurosat", choices=["eurosat", "ecg", "kws"])
 p.add_argument("--method", default="g", choices=["float", "ste", "g"])
 p.add_argument("--bits", type=int, default=1)
 p.add_argument("--seed", type=int, default=0)
@@ -30,8 +32,11 @@ np.random.seed(a.seed)
 # TASK SETTINGS
 if a.task == "eurosat":
     n_layer, n_head, n_embd, dropout, batch_size, epochs = 6, 3, 192, 0.1, 128, a.epochs or 40
-else:
+elif a.task == "ecg":
     n_layer, n_head, n_embd, dropout, batch_size, epochs = 4, 4, 128, 0.1, 256, a.epochs or 20
+else:
+    n_layer, n_head, n_embd, dropout, batch_size, epochs = 12, 1, 64, 0.0, 512, a.epochs or 60
+label_smoothing = 0.1 if a.task == "kws" else 0.0
 NAME = a.name or f"{a.task}_{a.method}" + ("" if a.method == "float" else f"_k{a.bits}") + f"_s{a.seed}"
 
 # QUANTIZATION (SAME AS onebit/train_1bit.py)
@@ -130,6 +135,32 @@ if a.task == "eurosat":
     model = ViT(192, 64, len(classes)).to(device)
     batch = lambda X, idx, train: (to_patches(X[idx], train), None)
     class_w = None
+elif a.task == "kws":
+    d = np.load(os.path.join(HERE, "data", "kws.npz"))
+    classes = [str(c) for c in d["classes"]]
+    Xtr, ytr = torch.tensor(d["X_train"]).to(device), torch.tensor(d["y_train"]).to(device)
+    Xte, yte = torch.tensor(d["X_test"]).to(device), torch.tensor(d["y_test"]).to(device)
+    mean = Xtr.float().mean((0, 1))  # PER MEL BAND, FROM THE TRAINING SET
+    std = Xtr.float().std((0, 1))
+
+    def spec_batch(xb, train):
+        # (B, 98, 40) LOG-MELS, NORMALISED. TRAINING: TIME SHIFT UP TO 10 FRAMES, AND SPECAUGMENT
+        # (2 TIME MASKS UP TO 25 FRAMES, 2 FREQUENCY MASKS UP TO 7 BANDS; MASKED VALUES SET TO THE MEAN, 0)
+        x = (xb.float() - mean) / std
+        if train:
+            B, T, Fq = x.shape
+            x = torch.roll(x, int(torch.randint(-10, 11, (1,))), dims=1)
+            t, f = torch.arange(T, device=x.device), torch.arange(Fq, device=x.device)
+            for _ in range(2):
+                w, s0 = torch.randint(0, 26, (B, 1), device=x.device), torch.randint(0, T, (B, 1), device=x.device)
+                x = x.masked_fill(((t >= s0) & (t < s0 + w))[:, :, None], 0.0)
+                w, s0 = torch.randint(0, 8, (B, 1), device=x.device), torch.randint(0, Fq, (B, 1), device=x.device)
+                x = x.masked_fill(((f >= s0) & (f < s0 + w))[:, None, :], 0.0)
+        return x
+
+    model = ViT(40, 98, len(classes)).to(device)
+    batch = lambda X, idx, train: (spec_batch(X[idx], train), None)
+    class_w = None
 else:
     import sys
     sys.path.insert(0, os.path.join(HERE, "..", "ecg"))
@@ -174,7 +205,7 @@ for ep in range(epochs):
     perm = torch.randperm(len(ytr), device=device)
     for i in range(0, len(ytr), batch_size):
         idx = perm[i:i + batch_size]
-        loss = F.cross_entropy(model(*batch(Xtr, idx, True)), ytr[idx], weight=class_w)
+        loss = F.cross_entropy(model(*batch(Xtr, idx, True)), ytr[idx], weight=class_w, label_smoothing=label_smoothing)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         gn = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
