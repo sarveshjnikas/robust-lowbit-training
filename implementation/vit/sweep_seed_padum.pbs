@@ -1,0 +1,26 @@
+#!/bin/bash
+#PBS -N vitseed
+#PBS -P scai
+#PBS -q scai_q
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=08:00:00
+#PBS -j oe
+
+# ONE SEED OF ONE TASK: OPTIONAL FLOAT RUN, AND STE VS. g AT THE GIVEN BITS. 4 RUNS AT A TIME ON ONE GPU.
+# SKIPS ANY RUN WHOSE runs/<name>.json ALREADY EXISTS, SO A JOB CAN BE RESUBMITTED AFTER A TIMEOUT.
+# Usage, from implementation/vit:
+#   qsub -v TASK=kws,SEED=1 sweep_seed_padum.pbs                       (float + 1, 2, 4 bits)
+#   qsub -v TASK=kws,SEED=0,BITS=4,FLOAT=0 sweep_seed_padum.pbs        (only STE and g at 4 bits)
+source "$HOME/scratch/miniconda3/etc/profile.d/conda.sh"
+conda activate a4
+cd "$PBS_O_WORKDIR" || exit 1
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+mkdir -p logs
+TASK=${TASK:?set TASK}; SEED=${SEED:?set SEED}; BITS=${BITS:-1 2 4}; FLOAT=${FLOAT:-1}
+{ [ "$FLOAT" = 1 ] && echo "float 1"; for b in $BITS; do for m in ste g; do echo "$m $b"; done; done; } \
+  | while read m b; do
+      name=${TASK}_${m}$([ "$m" = float ] || echo "_k$b")_s$SEED
+      [ -f runs/$name.json ] || echo "$m $b"
+    done \
+  | xargs -P 4 -L 1 bash -c "python train_vit.py --task $TASK --method \$0 --bits \$1 --seed $SEED > logs/${TASK}_\$0_k\$1_s$SEED.log 2>&1"
+echo "SWEEP FINISHED: $TASK seed $SEED"
